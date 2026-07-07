@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/cli", "crates/gui"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/naporin0624/web-cam-sharedtexture"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+as_conversions = "deny"
