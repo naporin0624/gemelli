@@ -52,6 +52,19 @@ impl Frame {
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+
+    pub fn pixel(&self, x: u32, y: u32) -> Option<[u8; 4]> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        let width_len = usize::try_from(self.width).unwrap_or(usize::MAX);
+        let x_len = usize::try_from(x).unwrap_or(usize::MAX);
+        let y_len = usize::try_from(y).unwrap_or(usize::MAX);
+        let idx = y_len.checked_mul(width_len)?.checked_add(x_len)?.checked_mul(4)?;
+        let end = idx.checked_add(4)?;
+        let bytes = self.data.get(idx..end)?;
+        Some([bytes[0], bytes[1], bytes[2], bytes[3]])
+    }
 }
 
 #[cfg(test)]
@@ -91,5 +104,23 @@ mod tests {
     fn new_rejects_zero_dimension() {
         let result = Frame::new(0, 3, vec![]);
         assert_eq!(result, Err(FrameError::ZeroDimension { width: 0, height: 3 }));
+    }
+
+    #[test]
+    fn pixel_returns_bgra_bytes_at_position() {
+        let frame = sample_frame();
+        assert_eq!(frame.pixel(0, 0), Some([10, 20, 30, 255]));
+        assert_eq!(frame.pixel(1, 0), Some([11, 21, 31, 255]));
+        assert_eq!(frame.pixel(0, 1), Some([12, 22, 32, 255]));
+        assert_eq!(frame.pixel(1, 1), Some([13, 23, 33, 255]));
+        assert_eq!(frame.pixel(0, 2), Some([14, 24, 34, 255]));
+        assert_eq!(frame.pixel(1, 2), Some([15, 25, 35, 255]));
+    }
+
+    #[test]
+    fn pixel_returns_none_out_of_bounds() {
+        let frame = sample_frame();
+        assert_eq!(frame.pixel(2, 0), None);
+        assert_eq!(frame.pixel(0, 3), None);
     }
 }
