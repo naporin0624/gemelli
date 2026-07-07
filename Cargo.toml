@@ -7,6 +7,9 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/naporin0624/web-cam-sharedtexture"
 
+[workspace.dependencies]
+thiserror = "2"
+
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
