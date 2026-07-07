@@ -71,4 +71,30 @@ mod tests {
         let result = apply(&frame, &TransformConfig::default()).unwrap();
         assert_eq!(result, frame);
     }
+
+    #[test]
+    fn rotate_four_times_returns_original() {
+        let frame = sample_frame();
+        let mut current = frame.clone();
+        for _ in 0..4 {
+            current = rotate::rotate(&current, Rotation::R90);
+        }
+        assert_eq!(current, frame);
+    }
+
+    #[test]
+    fn flip_twice_returns_original() {
+        let frame = sample_frame();
+        let once = flip::flip(&frame, Flip::Horizontal);
+        let twice = flip::flip(&once, Flip::Horizontal);
+        assert_eq!(twice, frame);
+    }
+
+    #[test]
+    fn rotate_ninety_swaps_dimensions() {
+        let frame = sample_frame();
+        let rotated = rotate::rotate(&frame, Rotation::R90);
+        assert_eq!(rotated.width(), frame.height());
+        assert_eq!(rotated.height(), frame.width());
+    }
 }
