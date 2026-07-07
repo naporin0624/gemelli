@@ -20,8 +20,16 @@ pub fn scale(frame: &Frame, spec: ScaleSpec) -> Result<Frame, TransformError> {
 
 fn target_dims(frame: &Frame, spec: ScaleSpec) -> Result<(u32, u32), TransformError> {
     match spec {
-        ScaleSpec::Exact { width, height } => Ok((width, height)),
+        ScaleSpec::Exact { width, height } => {
+            if width == 0 || height == 0 {
+                return Err(TransformError::ScaleToZero { width, height });
+            }
+            Ok((width, height))
+        }
         ScaleSpec::Factor(factor) => {
+            if !factor.is_finite() || factor <= 0.0 {
+                return Err(TransformError::ScaleFactorInvalid { factor });
+            }
             let width = scale_dimension(frame.width(), factor);
             let height = scale_dimension(frame.height(), factor);
             Ok((width, height))
@@ -100,5 +108,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn exact_zero_size_is_rejected() {
+        let frame = sample_frame();
+        let result = scale(&frame, ScaleSpec::Exact { width: 0, height: 5 });
+        assert_eq!(result, Err(TransformError::ScaleToZero { width: 0, height: 5 }));
+    }
+
+    #[test]
+    fn negative_factor_is_rejected() {
+        let frame = sample_frame();
+        let result = scale(&frame, ScaleSpec::Factor(-1.0));
+        assert_eq!(result, Err(TransformError::ScaleFactorInvalid { factor: -1.0 }));
+    }
+
+    #[test]
+    fn non_finite_factor_is_rejected() {
+        let frame = sample_frame();
+        let result = scale(&frame, ScaleSpec::Factor(f64::NAN));
+        match result {
+            Err(TransformError::ScaleFactorInvalid { factor }) => assert!(factor.is_nan()),
+            other => panic!("expected ScaleFactorInvalid, got {other:?}"),
+        }
     }
 }
