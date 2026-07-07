@@ -70,10 +70,6 @@ impl Frame {
     /// Callers (transform functions) already derive `width`/`height` from a
     /// source `Frame` and push exactly `width * height * 4` bytes, so the
     /// `new` round-trip would only re-check what the caller already proved.
-    ///
-    /// `#[allow(dead_code)]`: no transform module calls this yet (added in a
-    /// later task); only test code exercises it so far.
-    #[allow(dead_code)]
     pub(crate) fn from_validated(width: u32, height: u32, data: Vec<u8>) -> Self {
         Self { width, height, data }
     }
