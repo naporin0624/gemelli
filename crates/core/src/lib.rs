@@ -2,4 +2,5 @@
 
 pub mod capture;
 pub mod frame;
+pub mod publish;
 pub mod transform;
