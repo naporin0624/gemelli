@@ -30,6 +30,7 @@ jobs:
             pkg-config \
             libv4l-dev \
             libgtk-3-dev \
+            libxdo-dev \
             libxkbcommon-dev \
             libwayland-dev \
             libxcb-render0-dev \
