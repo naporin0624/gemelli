@@ -333,76 +333,116 @@ impl GemelliApp {
     }
 
     fn controls_ui(&mut self, ui: &mut egui::Ui) {
-        widgets::group_label(ui, "Device");
-        ui.horizontal(|ui| {
-            // egui's `horizontal` layout has no "fill remaining space" primitive, so the combo
-            // box can't just ask for "the rest" after the refresh button — it needs an exact
-            // `.width()` up front, computed from a fixed lane reserved for that button.
-            let refresh_lane = 36.0;
-            let combo_width =
-                (ui.available_width() - refresh_lane - ui.spacing().item_spacing.x).max(0.0);
-            let device_changed =
-                sidebar::device_panel(ui, &self.devices, &mut self.selected_device, combo_width);
-            if sidebar::refresh_button(ui) {
-                self.reload_devices();
-            }
-            if device_changed && self.worker.is_some() {
-                self.start_worker();
+        // Every control group is one `ROW_HEIGHT` row, label and control on the same line, so
+        // this one spacing override is what produces the grid's vertical density — each
+        // `labeled_row`/`action_button` call below is a top-level widget in this panel's default-
+        // vertical layout and gets this gap for free, with no per-group `ui.add_space` needed.
+        ui.spacing_mut().item_spacing.y = 5.0;
+        // Combo boxes, `DragValue`s, sliders, and default egui buttons all clamp their own
+        // minimum height to `interact_size.y` — overriding it here once is what makes every
+        // non-custom-painted control in this row grid match the 24px rows `segmented`/
+        // `icon_button` already paint at, instead of relying on font-size coincidence to land
+        // near 24px.
+        ui.spacing_mut().interact_size.y = widgets::ROW_HEIGHT;
+
+        widgets::labeled_row(ui, "Device", |ui| {
+            ui.horizontal(|ui| {
+                // egui's `horizontal` layout has no "fill remaining space" primitive, so the
+                // combo box can't just ask for "the rest" after the refresh button — it needs an
+                // exact `.width()` up front, computed from the button's own fixed 24px lane.
+                let refresh_lane = widgets::ROW_HEIGHT;
+                let combo_width =
+                    (ui.available_width() - refresh_lane - ui.spacing().item_spacing.x).max(0.0);
+                let device_changed = sidebar::device_panel(
+                    ui,
+                    &self.devices,
+                    &mut self.selected_device,
+                    combo_width,
+                );
+                if sidebar::refresh_button(ui) {
+                    self.reload_devices();
+                }
+                if device_changed && self.worker.is_some() {
+                    self.start_worker();
+                }
+            });
+        });
+
+        widgets::labeled_row(ui, "Rotate", |ui| {
+            let mut rotate_index = rotation_segment_index(self.rotation);
+            widgets::segmented(
+                ui,
+                "rotate_segmented",
+                &mut rotate_index,
+                &[
+                    widgets::CellContent::Text("0\u{b0}"),
+                    widgets::CellContent::Text("90\u{b0}"),
+                    widgets::CellContent::Text("180\u{b0}"),
+                    widgets::CellContent::Text("270\u{b0}"),
+                ],
+            );
+            let new_rotation = rotation_from_segment_index(rotate_index);
+            if new_rotation != self.rotation {
+                self.rotation = new_rotation;
+                self.push_transform();
             }
         });
 
-        ui.add_space(8.0);
-        widgets::group_label(ui, "Rotate");
-        let mut rotate_index = rotation_segment_index(self.rotation);
-        widgets::segmented(
-            ui,
-            "rotate_segmented",
-            &mut rotate_index,
-            &["0\u{b0}", "90\u{b0}", "180\u{b0}", "270\u{b0}"],
-        );
-        let new_rotation = rotation_from_segment_index(rotate_index);
-        if new_rotation != self.rotation {
-            self.rotation = new_rotation;
-            self.push_transform();
-        }
-
-        ui.add_space(8.0);
-        widgets::group_label(ui, "Flip");
-        let mut flip_index = widgets::flip_segment_index(self.flip_h, self.flip_v);
-        widgets::segmented(ui, "flip_segmented", &mut flip_index, &["none", "H", "V", "H+V"]);
-        let (new_flip_h, new_flip_v) = widgets::flip_from_segment_index(flip_index);
-        if (new_flip_h, new_flip_v) != (self.flip_h, self.flip_v) {
-            self.flip_h = new_flip_h;
-            self.flip_v = new_flip_v;
-            self.push_transform();
-        }
-
-        ui.add_space(8.0);
-        widgets::group_label(ui, "Crop");
-        let mut crop_index = if self.crop.is_some() { 1 } else { 0 };
-        widgets::segmented(ui, "crop_segmented", &mut crop_index, &["off", "edit\u{2026}"]);
-        match (self.crop.is_some(), crop_index) {
-            (false, 1) => match self.input_dims {
-                Some((frame_w, frame_h)) => {
-                    self.crop = Some(crate::crop_editor::seed_rect(frame_w, frame_h));
-                    self.preview_mode = PreviewMode::CropEdit;
-                    self.push_transform();
-                }
-                None => {
-                    self.banner =
-                        Some("no frame yet — start capture before adding a crop".to_string());
-                }
-            },
-            (true, 0) => {
-                self.crop = None;
-                self.drag = None;
-                self.preview_mode = PreviewMode::Output;
+        widgets::labeled_row(ui, "Flip", |ui| {
+            let mut flip_index = widgets::flip_segment_index(self.flip_h, self.flip_v);
+            widgets::segmented(
+                ui,
+                "flip_segmented",
+                &mut flip_index,
+                &[
+                    widgets::CellContent::Icon(widgets::IconKind::FlipNone),
+                    widgets::CellContent::Icon(widgets::IconKind::FlipHorizontal),
+                    widgets::CellContent::Icon(widgets::IconKind::FlipVertical),
+                    widgets::CellContent::Icon(widgets::IconKind::FlipBoth),
+                ],
+            );
+            let (new_flip_h, new_flip_v) = widgets::flip_from_segment_index(flip_index);
+            if (new_flip_h, new_flip_v) != (self.flip_h, self.flip_v) {
+                self.flip_h = new_flip_h;
+                self.flip_v = new_flip_v;
                 self.push_transform();
             }
-            _ => {}
-        }
+        });
+
+        widgets::labeled_row(ui, "Crop", |ui| {
+            let mut crop_index = if self.crop.is_some() { 1 } else { 0 };
+            widgets::segmented(
+                ui,
+                "crop_segmented",
+                &mut crop_index,
+                &[widgets::CellContent::Text("off"), widgets::CellContent::Text("edit\u{2026}")],
+            );
+            match (self.crop.is_some(), crop_index) {
+                (false, 1) => match self.input_dims {
+                    Some((frame_w, frame_h)) => {
+                        self.crop = Some(crate::crop_editor::seed_rect(frame_w, frame_h));
+                        self.preview_mode = PreviewMode::CropEdit;
+                        self.push_transform();
+                    }
+                    None => {
+                        self.banner =
+                            Some("no frame yet — start capture before adding a crop".to_string());
+                    }
+                },
+                (true, 0) => {
+                    self.crop = None;
+                    self.drag = None;
+                    self.preview_mode = PreviewMode::Output;
+                    self.push_transform();
+                }
+                _ => {}
+            }
+        });
         if let Some(rect) = self.crop {
-            match sidebar::crop_panel(ui, rect) {
+            // Empty label: still reserves `LABEL_COLUMN_WIDTH` (see `labeled_row`'s doc comment)
+            // so this detail row's DragValues align under the CROP control above, not under its
+            // label.
+            widgets::labeled_row(ui, "", |ui| match sidebar::crop_panel(ui, rect) {
                 sidebar::CropAction::None => {}
                 sidebar::CropAction::Edited(rect) => {
                     let clamped = match self.input_dims {
@@ -414,33 +454,55 @@ impl GemelliApp {
                     self.crop = Some(clamped);
                     self.push_transform();
                 }
+            });
+        }
+
+        widgets::labeled_row(ui, "Scale", |ui| {
+            let mut scale_index = sidebar::scale_mode_index(self.scale_input);
+            widgets::segmented(
+                ui,
+                "scale_segmented",
+                &mut scale_index,
+                &[
+                    widgets::CellContent::Text("off"),
+                    widgets::CellContent::Text("factor"),
+                    widgets::CellContent::Text("W\u{d7}H"),
+                ],
+            );
+            let new_scale_input =
+                sidebar::scale_input_for_mode_index(scale_index, self.scale_input);
+            if new_scale_input != self.scale_input {
+                self.scale_input = new_scale_input;
+                self.push_transform();
             }
+        });
+        // Unlike CROP's detail row (gated on `self.crop.is_some()`), this can't gate on a
+        // `Some`/`None` — `ScaleInput` has no such state, `Off` is one of its three ordinary
+        // variants — so it gates on `!= Off` directly instead. Without this the row would always
+        // reserve a 24px line even while SCALE is "off" and `scale_value_panel` draws nothing into
+        // it, wasting vertical space in the compact grid for no visible benefit.
+        if self.scale_input != ScaleInput::Off {
+            widgets::labeled_row(ui, "", |ui| {
+                if sidebar::scale_value_panel(ui, &mut self.scale_input) {
+                    self.push_transform();
+                }
+            });
         }
 
-        ui.add_space(8.0);
-        widgets::group_label(ui, "Scale");
-        let mut scale_index = sidebar::scale_mode_index(self.scale_input);
-        widgets::segmented(ui, "scale_segmented", &mut scale_index, &["off", "factor", "W\u{d7}H"]);
-        let new_scale_input = sidebar::scale_input_for_mode_index(scale_index, self.scale_input);
-        if new_scale_input != self.scale_input {
-            self.scale_input = new_scale_input;
-            self.push_transform();
-        }
-        if sidebar::scale_value_panel(ui, &mut self.scale_input) {
-            self.push_transform();
-        }
+        widgets::labeled_row(ui, "Server", |ui| {
+            let server_name_committed = sidebar::server_name_panel(ui, &mut self.server_name);
+            if server_name_committed && self.worker.is_some() {
+                self.start_worker();
+            }
+        });
 
-        ui.add_space(8.0);
-        widgets::group_label(ui, "Server");
-        let server_name_committed = sidebar::server_name_panel(ui, &mut self.server_name);
-        if server_name_committed && self.worker.is_some() {
-            self.start_worker();
-        }
-
-        ui.add_space(8.0);
         let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
-        let action_label = if running { "STOP PUBLISHING" } else { "START PUBLISHING" };
-        if widgets::action_button(ui, action_label).clicked() {
+        let (icon, action_label) = if running {
+            (widgets::IconKind::Stop, "STOP PUBLISHING")
+        } else {
+            (widgets::IconKind::Play, "START PUBLISHING")
+        };
+        if widgets::action_button(ui, icon, action_label).clicked() {
             if running {
                 self.stop_worker();
             } else {

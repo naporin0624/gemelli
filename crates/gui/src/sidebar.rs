@@ -58,8 +58,11 @@ pub(crate) fn device_panel(
     *selected != previous
 }
 
+/// 24px square icon button (`crate::widgets::ROW_HEIGHT`) painted with the refresh vector icon —
+/// see `widgets::icon_button` for why this isn't a font-glyph `egui::Button`.
 pub(crate) fn refresh_button(ui: &mut egui::Ui) -> bool {
-    ui.button("\u{27f3}").clicked()
+    crate::widgets::icon_button(ui, crate::widgets::IconKind::Refresh, crate::widgets::ROW_HEIGHT)
+        .clicked()
 }
 
 /// Scale widget's mode as a segmented-control index, in the `off / factor / W×H` cell order the
