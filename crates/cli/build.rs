@@ -15,7 +15,7 @@ fn main() -> ExitCode {
 // instruction only applies to the emitting package's own targets — it does
 // not propagate to downstream binaries that merely depend on that crate
 // (unlike `rustc-link-lib`/`rustc-link-search`, which do propagate). Since
-// this crate's binary links `webcam-sharedtexture-syphon` on macOS, it needs
+// this crate's binary links `gemelli-syphon` on macOS, it needs
 // the same rpath entries itself or `@rpath/Syphon.framework/...` cannot be
 // resolved at process launch.
 //

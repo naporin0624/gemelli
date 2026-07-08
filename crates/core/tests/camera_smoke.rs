@@ -1,7 +1,7 @@
 //! Manual verification only — exercises real camera hardware and is
 //! excluded from the default `cargo test` run. Run explicitly with:
-//!   cargo test -p webcam-sharedtexture-core --test camera_smoke -- --ignored
-use webcam_sharedtexture_core::capture::{CaptureSource, NokhwaSource, list_devices};
+//!   cargo test -p gemelli-core --test camera_smoke -- --ignored
+use gemelli_core::capture::{CaptureSource, NokhwaSource, list_devices};
 
 #[test]
 #[ignore = "requires physical camera hardware"]

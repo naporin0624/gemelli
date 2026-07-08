@@ -1,8 +1,8 @@
-# web-cam-sharedtexture
+# gemelli
 
 A small tool that captures a webcam feed and publishes it as a shared GPU texture
 (Syphon on macOS, Spout on Windows), with rotate/flip/crop/scale transforms
-configurable via CLI arguments.
+configurable via CLI arguments. Sister tool of [ravioli](https://github.com/naporin0624/ravioli).
 
 ## Building the Syphon bridge (macOS)
 

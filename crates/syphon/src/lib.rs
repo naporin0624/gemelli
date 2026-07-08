@@ -5,8 +5,8 @@ mod ffi;
 use std::ffi::CString;
 use std::ptr::NonNull;
 
-use webcam_sharedtexture_core::frame::Frame;
-use webcam_sharedtexture_core::publish::{PublishError, TexturePublisher};
+use gemelli_core::frame::Frame;
+use gemelli_core::publish::{PublishError, TexturePublisher};
 
 /// Sender-only Syphon Metal publisher. Wraps the opaque bridge handle
 /// returned by `syphon_bridge_create`.
@@ -104,7 +104,7 @@ mod tests {
     #[test]
     #[ignore = "requires a real macOS GPU session; run manually with --ignored"]
     fn publish_one_solid_color_frame() {
-        use webcam_sharedtexture_core::frame::Frame;
+        use gemelli_core::frame::Frame;
 
         let width = 64_u32;
         let height = 64_u32;
@@ -115,8 +115,7 @@ mod tests {
         let data = pixel.iter().copied().cycle().take(len).collect();
         let frame = Frame::new(width, height, data).expect("valid frame");
 
-        let mut publisher =
-            SyphonPublisher::new("webcam-sharedtexture-smoke-test").expect("server create");
+        let mut publisher = SyphonPublisher::new("gemelli-smoke-test").expect("server create");
 
         publisher.publish(&frame).expect("publish");
 

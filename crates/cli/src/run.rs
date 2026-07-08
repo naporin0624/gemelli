@@ -4,9 +4,9 @@ use std::io::IsTerminal;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use webcam_sharedtexture_core::capture::{CaptureError, DeviceInfo, NokhwaSource, list_devices};
-use webcam_sharedtexture_core::pipeline::{PipelineError, run_pipeline};
-use webcam_sharedtexture_core::publish::{PublishError, TexturePublisher};
+use gemelli_core::capture::{CaptureError, DeviceInfo, NokhwaSource, list_devices};
+use gemelli_core::pipeline::{PipelineError, run_pipeline};
+use gemelli_core::publish::{PublishError, TexturePublisher};
 
 use crate::args::Args;
 use crate::select::{choose_device, format_devices};
@@ -67,7 +67,7 @@ pub fn resolve_device(
 
 #[cfg(target_os = "macos")]
 fn create_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, CliError> {
-    let publisher = webcam_sharedtexture_syphon::SyphonPublisher::new(server_name)?;
+    let publisher = gemelli_syphon::SyphonPublisher::new(server_name)?;
     Ok(Box::new(publisher))
 }
 
@@ -179,17 +179,17 @@ mod run_smoke_tests {
 
     #[test]
     #[ignore = "requires a real camera; run manually with \
-                `cargo test -p webcam-sharedtexture-cli run_smoke_test -- --ignored`, \
+                `cargo test -p gemelli-cli run_smoke_test -- --ignored`, \
                 then Ctrl+C after a few seconds and confirm it exits 0"]
     fn run_smoke_test() {
         let args = Args {
             device: Some(0),
             list_devices: false,
-            rotate: webcam_sharedtexture_core::transform::Rotation::R0,
+            rotate: gemelli_core::transform::Rotation::R0,
             flip: None,
             crop: None,
             scale: None,
-            server_name: "webcam-sharedtexture-smoke-test".to_string(),
+            server_name: "gemelli-smoke-test".to_string(),
             fps: None,
         };
 

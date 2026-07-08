@@ -5,10 +5,10 @@
 //! never has to handle CLI-shaped invalid input.
 
 use clap::Parser;
-use webcam_sharedtexture_core::transform::{CropRect, Flip, Rotation, ScaleSpec, TransformConfig};
+use gemelli_core::transform::{CropRect, Flip, Rotation, ScaleSpec, TransformConfig};
 
 #[derive(Debug, Parser)]
-#[command(name = "webcam-sharedtexture")]
+#[command(name = "gemelli")]
 pub struct Args {
     /// Camera device index; omit to select interactively (TTY only)
     pub device: Option<u32>,
@@ -28,7 +28,7 @@ pub struct Args {
     #[arg(long, value_parser = parse_scale)]
     pub scale: Option<ScaleSpec>,
 
-    #[arg(long, default_value = "webcam-sharedtexture")]
+    #[arg(long, default_value = "gemelli")]
     pub server_name: String,
 
     #[arg(long)]
@@ -280,7 +280,7 @@ mod transform_config_tests {
             flip: None,
             crop: None,
             scale: None,
-            server_name: "webcam-sharedtexture".to_string(),
+            server_name: "gemelli".to_string(),
             fps: None,
         }
     }

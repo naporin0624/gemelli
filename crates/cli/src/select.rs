@@ -7,7 +7,7 @@
 
 use std::io::Write;
 
-use webcam_sharedtexture_core::capture::DeviceInfo;
+use gemelli_core::capture::DeviceInfo;
 
 use crate::run::CliError;
 
