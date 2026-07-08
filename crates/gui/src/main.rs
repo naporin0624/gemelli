@@ -21,8 +21,8 @@ fn main() -> ExitCode {
         // exactly that chrome plus a 16:9 preview at the initial width (360 * 9/16 = 202.5,
         // rounded up to keep the preview from being truncated below its exact 16:9 slice) —
         // the smallest default that still shows a full-aspect preview with no slack. Min
-        // height instead leaves just the >=120px preview floor, which lands below the initial
-        // height now that chrome is a measured constant rather than an estimate.
+        // height instead leaves just the >=120px preview floor (228 + 120 = 348, rounded to
+        // 350), which stays below the initial height at every width.
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([360.0, 431.0])
             .with_min_inner_size([300.0, 350.0])
