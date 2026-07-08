@@ -1,0 +1,30 @@
+name: License Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  policy:
+    name: cargo-deny (licenses)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses
+
+  freshness:
+    name: license manifest freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+        # Keep this pin in sync with mise.toml's `rust` tool version.
+      - name: Install cargo-bundle-licenses
+        run: cargo install cargo-bundle-licenses --version 4.2.0 --locked
+        # Keep this version pin in sync with mise.toml's `cargo:cargo-bundle-licenses` pin for
+        # the same tool — if that version changes, bump this line in the same PR.
+      - name: Check generated license manifest is up to date
+        run: cargo xtask gen-licenses --check

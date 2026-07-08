@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Syphon Framework",
+    "version": null,
+    "license": "BSD-3-Clause",
+    "text": "Copyright 2010 bangnoise (Tom Butterworth) & vade (Anton Marini).\nAll rights reserved.\n\nRedistribution and use in source and binary forms, with or without\nmodification, are permitted provided that the following conditions are met:\n\n* Redistributions of source code must retain the above copyright\nnotice, this list of conditions and the following disclaimer.\n\n* Redistributions in binary form must reproduce the above copyright\nnotice, this list of conditions and the following disclaimer in the\ndocumentation and/or other materials provided with the distribution.\n\n* Neither the name of the Syphon Project nor the names of its contributors\nmay be used to endorse or promote products derived from this software\nwithout specific prior written permission.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\nANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\nWARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\nDISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY\nDIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;\nLOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND\nON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS\nSOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
+    "homepage": "https://github.com/Syphon/Syphon-Framework",
+    "category": "native"
+  },
+  {
+    "name": "LINE Seed JP",
+    "version": null,
+    "license": "OFL-1.1",
+    "text": "https://github.com/line/seed (release v20251119)\n\nFetched at build time by scripts/fetch-fonts.sh and embedded into the\ngemelli-gui binary via include_bytes! (crates/gui/src/fonts.rs).\n\nLicensed under the SIL Open Font License, Version 1.1. The full license text\nis written to vendor/fonts/LICENSE by scripts/fetch-fonts.sh at fetch time;\nit is not committed to this repository (vendor/fonts/ is gitignored).\n\n\"LINE\" is a trademark of LY Corporation. This notice does not grant any\nrights to that trademark.",
+    "homepage": "https://seed.line.me/",
+    "category": "font"
+  },
+  {
+    "name": "Spout2 SDK",
+    "version": null,
+    "license": "BSD-2-Clause",
+    "text": "https://github.com/leadedge/Spout2 (release 2.007.017)\n\nFetched at build time by scripts/fetch-spout.sh into vendor/Spout2/ and compiled\ninto the gemelli-spout crate (Windows only) via crates/spout/build.rs. The full\nlicense text is written to vendor/Spout2/LICENSE by the fetch script; it is not\ncommitted to this repository (vendor/Spout2/ is gitignored).\n\nCopyright (c) 2020-2024, Lynn Jarvis\nAll rights reserved.\n\nRedistribution and use in source and binary forms, with or without\nmodification, are permitted provided that the following conditions are met:\n\n1. Redistributions of source code must retain the above copyright notice, this\n   list of conditions and the following disclaimer.\n\n2. Redistributions in binary form must reproduce the above copyright notice,\n   this list of conditions and the following disclaimer in the documentation\n   and/or other materials provided with the distribution.\n\nTHIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\" AND\nANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED\nWARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE\nDISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR\nANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES\n(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;\nLOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON\nANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS\nSOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
+    "homepage": "https://github.com/leadedge/Spout2",
+    "category": "native"
+  }
+]

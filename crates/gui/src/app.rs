@@ -12,6 +12,7 @@ use crate::fps_meter::FpsMeter;
 use crate::preview;
 use crate::sidebar::{self, ScaleInput};
 use crate::theme;
+use crate::widgets;
 use crate::worker::{SharedState, WorkerError, WorkerHandle, WorkerSpec, spawn_worker};
 
 /// (h, v) toggle state -> `Flip`. Exhaustive over all four bool pairs — no `_` arm, so a new
@@ -23,6 +24,29 @@ fn flip_from_toggles(h: bool, v: bool) -> Flip {
         (true, false) => Flip::Horizontal,
         (false, true) => Flip::Vertical,
         (true, true) => Flip::Both,
+    }
+}
+
+/// `Rotation` <-> segmented-control index, in the `0° / 90° / 180° / 270°` cell order the design
+/// doc specifies.
+fn rotation_segment_index(rotation: Rotation) -> usize {
+    match rotation {
+        Rotation::R0 => 0,
+        Rotation::R90 => 1,
+        Rotation::R180 => 2,
+        Rotation::R270 => 3,
+    }
+}
+
+/// Inverse of `rotation_segment_index`. An index of 3 or greater clamps to R270 rather than
+/// panicking — `segmented`'s `selected` is a plain `usize` with no compile-time bound tying it to
+/// exactly 4 cells.
+fn rotation_from_segment_index(index: usize) -> Rotation {
+    match index {
+        0 => Rotation::R0,
+        1 => Rotation::R90,
+        2 => Rotation::R180,
+        _ => Rotation::R270,
     }
 }
 
@@ -93,6 +117,7 @@ pub struct GemelliApp {
 
     preview_mode: PreviewMode,
     banner: Option<String>,
+    licenses: crate::licenses::LicensesWindow,
 
     fps: FpsMeter,
     last_frames_published: u64,
@@ -108,12 +133,24 @@ pub struct GemelliApp {
     /// the frame's own dims changing) means the pixels to display are no longer the ones already
     /// on the texture.
     last_uploaded: Option<(u64, PreviewMode, (u32, u32))>,
+
+    /// `None` when `menu::build_app_menu()` failed at startup (see `GemelliApp::new`)
+    /// — the app still runs, just without a menu bar.
+    menu: Option<crate::menu::AppMenu>,
 }
 
 impl GemelliApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply_theme(&cc.egui_ctx);
         crate::fonts::install_fonts(&cc.egui_ctx);
+
+        let menu = match crate::menu::build_app_menu() {
+            Ok(menu) => Some(menu),
+            Err(reason) => {
+                eprintln!("gemelli-gui: failed to build app menu: {reason}");
+                None
+            }
+        };
 
         let (devices, banner) = match capture::list_devices() {
             Ok(devices) => (devices, None),
@@ -139,6 +176,7 @@ impl GemelliApp {
             drag: None,
             preview_mode: PreviewMode::Output,
             banner,
+            licenses: crate::licenses::LicensesWindow::default(),
             fps: FpsMeter::new(),
             last_frames_published: 0,
             texture: None,
@@ -146,6 +184,7 @@ impl GemelliApp {
             output_dims: None,
             preview_dims: None,
             last_uploaded: None,
+            menu,
         }
     }
 
@@ -203,6 +242,18 @@ impl GemelliApp {
         while let Ok(error) = self.errors_rx.try_recv() {
             self.banner = Some(error.to_string());
             self.worker = None;
+        }
+    }
+
+    /// Drains this frame's menu activations and applies each one. Exhaustive
+    /// match over `MenuAction` — a new variant added upstream forces this match
+    /// to be revisited instead of silently no-op'ing.
+    fn poll_menu_actions(&mut self, ctx: &egui::Context) {
+        let Some(menu) = &self.menu else { return };
+        for action in menu.poll_actions() {
+            match action {
+                crate::menu::MenuAction::OpenLicenses => self.licenses.request_open(ctx),
+            }
         }
     }
 
@@ -281,86 +332,153 @@ impl GemelliApp {
         }
     }
 
-    fn sidebar_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Device");
-        ui.horizontal(|ui| {
-            let device_changed =
-                sidebar::device_panel(ui, &self.devices, &mut self.selected_device);
-            if sidebar::refresh_button(ui) {
-                self.reload_devices();
+    fn controls_ui(&mut self, ui: &mut egui::Ui) {
+        // Every control group is one `ROW_HEIGHT` row, label and control on the same line, so
+        // this one spacing override is what produces the grid's vertical density — each
+        // `labeled_row`/`action_button` call below is a top-level widget in this panel's default-
+        // vertical layout and gets this gap for free, with no per-group `ui.add_space` needed.
+        ui.spacing_mut().item_spacing.y = 5.0;
+        // Combo boxes, `DragValue`s, sliders, and default egui buttons all clamp their own
+        // minimum height to `interact_size.y` — overriding it here once is what makes every
+        // non-custom-painted control in this row grid match the 24px rows `segmented`/
+        // `icon_button` already paint at, instead of relying on font-size coincidence to land
+        // near 24px.
+        ui.spacing_mut().interact_size.y = widgets::ROW_HEIGHT;
+
+        widgets::labeled_row(ui, "Device", |ui| {
+            ui.horizontal(|ui| {
+                // egui's `horizontal` layout has no "fill remaining space" primitive, so the
+                // combo box can't just ask for "the rest" after the refresh button — it needs an
+                // exact `.width()` up front, computed from the button's own fixed 24px lane.
+                let refresh_lane = widgets::ROW_HEIGHT;
+                let combo_width =
+                    (ui.available_width() - refresh_lane - ui.spacing().item_spacing.x).max(0.0);
+                let device_changed = sidebar::device_panel(
+                    ui,
+                    &self.devices,
+                    &mut self.selected_device,
+                    combo_width,
+                );
+                if sidebar::refresh_button(ui) {
+                    self.reload_devices();
+                }
+                if device_changed && self.worker.is_some() {
+                    self.start_worker();
+                }
+            });
+        });
+
+        widgets::labeled_row(ui, "Rotate", |ui| {
+            let mut rotate_index = rotation_segment_index(self.rotation);
+            widgets::segmented(
+                ui,
+                "rotate_segmented",
+                &mut rotate_index,
+                &["0\u{b0}", "90\u{b0}", "180\u{b0}", "270\u{b0}"],
+            );
+            let new_rotation = rotation_from_segment_index(rotate_index);
+            if new_rotation != self.rotation {
+                self.rotation = new_rotation;
+                self.push_transform();
             }
-            if device_changed && self.worker.is_some() {
+        });
+
+        widgets::labeled_row(ui, "Flip", |ui| {
+            let mut flip_index = widgets::flip_segment_index(self.flip_h, self.flip_v);
+            widgets::segmented(ui, "flip_segmented", &mut flip_index, &["none", "H", "V", "H+V"]);
+            let (new_flip_h, new_flip_v) = widgets::flip_from_segment_index(flip_index);
+            if (new_flip_h, new_flip_v) != (self.flip_h, self.flip_v) {
+                self.flip_h = new_flip_h;
+                self.flip_v = new_flip_v;
+                self.push_transform();
+            }
+        });
+
+        widgets::labeled_row(ui, "Crop", |ui| {
+            let mut crop_index = if self.crop.is_some() { 1 } else { 0 };
+            widgets::segmented(ui, "crop_segmented", &mut crop_index, &["off", "edit\u{2026}"]);
+            match (self.crop.is_some(), crop_index) {
+                (false, 1) => match self.input_dims {
+                    Some((frame_w, frame_h)) => {
+                        self.crop = Some(crate::crop_editor::seed_rect(frame_w, frame_h));
+                        self.preview_mode = PreviewMode::CropEdit;
+                        self.push_transform();
+                    }
+                    None => {
+                        self.banner =
+                            Some("no frame yet — start capture before adding a crop".to_string());
+                    }
+                },
+                (true, 0) => {
+                    self.crop = None;
+                    self.drag = None;
+                    self.preview_mode = PreviewMode::Output;
+                    self.push_transform();
+                }
+                _ => {}
+            }
+        });
+        if let Some(rect) = self.crop {
+            // Empty label: still reserves `LABEL_COLUMN_WIDTH` (see `labeled_row`'s doc comment)
+            // so this detail row's DragValues align under the CROP control above, not under its
+            // label.
+            widgets::labeled_row(ui, "", |ui| match sidebar::crop_panel(ui, rect) {
+                sidebar::CropAction::None => {}
+                sidebar::CropAction::Edited(rect) => {
+                    let clamped = match self.input_dims {
+                        Some((frame_w, frame_h)) => {
+                            crate::crop_editor::clamp_rect(rect, frame_w, frame_h)
+                        }
+                        None => rect,
+                    };
+                    self.crop = Some(clamped);
+                    self.push_transform();
+                }
+            });
+        }
+
+        widgets::labeled_row(ui, "Scale", |ui| {
+            let mut scale_index = sidebar::scale_mode_index(self.scale_input);
+            widgets::segmented(
+                ui,
+                "scale_segmented",
+                &mut scale_index,
+                &["off", "factor", "W\u{d7}H"],
+            );
+            let new_scale_input =
+                sidebar::scale_input_for_mode_index(scale_index, self.scale_input);
+            if new_scale_input != self.scale_input {
+                self.scale_input = new_scale_input;
+                self.push_transform();
+            }
+        });
+        // Unlike CROP's detail row (gated on `self.crop.is_some()`), this can't gate on a
+        // `Some`/`None` — `ScaleInput` has no such state, `Off` is one of its three ordinary
+        // variants — so it gates on `!= Off` directly instead. Without this the row would always
+        // reserve a 24px line even while SCALE is "off" and `scale_value_panel` draws nothing into
+        // it, wasting vertical space in the compact grid for no visible benefit.
+        if self.scale_input != ScaleInput::Off {
+            widgets::labeled_row(ui, "", |ui| {
+                if sidebar::scale_value_panel(ui, &mut self.scale_input) {
+                    self.push_transform();
+                }
+            });
+        }
+
+        widgets::labeled_row(ui, "Server", |ui| {
+            let server_name_committed = sidebar::server_name_panel(ui, &mut self.server_name);
+            if server_name_committed && self.worker.is_some() {
                 self.start_worker();
             }
         });
 
-        ui.add_space(8.0);
-        ui.heading("Rotate");
-        if sidebar::rotate_panel(ui, &mut self.rotation) {
-            self.push_transform();
-        }
-
-        ui.add_space(8.0);
-        ui.heading("Flip");
-        if sidebar::flip_panel(ui, &mut self.flip_h, &mut self.flip_v) {
-            self.push_transform();
-        }
-
-        ui.add_space(8.0);
-        ui.heading("Crop");
-        let crop_action =
-            crate::sidebar::crop_panel(ui, self.crop, self.preview_mode == PreviewMode::CropEdit);
-        match crop_action {
-            crate::sidebar::CropAction::None => {}
-            crate::sidebar::CropAction::ToggleEdit => {
-                self.preview_mode = match self.preview_mode {
-                    PreviewMode::Output => PreviewMode::CropEdit,
-                    PreviewMode::CropEdit => PreviewMode::Output,
-                };
-            }
-            crate::sidebar::CropAction::Add => match self.input_dims {
-                Some((frame_w, frame_h)) => {
-                    self.crop = Some(crate::crop_editor::seed_rect(frame_w, frame_h));
-                    self.push_transform();
-                }
-                None => {
-                    self.banner =
-                        Some("no frame yet — start capture before adding a crop".to_string());
-                }
-            },
-            crate::sidebar::CropAction::Clear => {
-                self.crop = None;
-                self.drag = None;
-                self.push_transform();
-            }
-            crate::sidebar::CropAction::Edited(rect) => {
-                let clamped = match self.input_dims {
-                    Some((frame_w, frame_h)) => {
-                        crate::crop_editor::clamp_rect(rect, frame_w, frame_h)
-                    }
-                    None => rect,
-                };
-                self.crop = Some(clamped);
-                self.push_transform();
-            }
-        }
-
-        ui.add_space(8.0);
-        ui.heading("Scale");
-        if sidebar::scale_panel(ui, &mut self.scale_input) {
-            self.push_transform();
-        }
-
-        ui.add_space(8.0);
-        ui.heading("Server name");
-        let server_name_committed = sidebar::server_name_panel(ui, &mut self.server_name);
-        if server_name_committed && self.worker.is_some() {
-            self.start_worker();
-        }
-
-        ui.add_space(8.0);
         let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
-        if sidebar::transport_button(ui, running) {
+        let (icon, action_label) = if running {
+            (widgets::IconKind::Stop, "STOP PUBLISHING")
+        } else {
+            (widgets::IconKind::Play, "START PUBLISHING")
+        };
+        if widgets::action_button(ui, icon, action_label).clicked() {
             if running {
                 self.stop_worker();
             } else {
@@ -371,24 +489,27 @@ impl GemelliApp {
 
     fn statusbar_ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let dims_text = match (self.input_dims, self.output_dims) {
-                (Some((iw, ih)), Some((ow, oh))) => format!("{iw}x{ih} -> {ow}x{oh}"),
-                (Some((iw, ih)), None) => format!("{iw}x{ih} -> --"),
-                (None, _) => "no signal".to_string(),
-            };
-            ui.label(dims_text);
+            let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
+            if running {
+                ui.colored_label(theme::tokens::ACCENT, "\u{25cf} publishing");
+            } else {
+                ui.colored_label(theme::tokens::TEXT_SUBTLE, "\u{25cb} stopped");
+            }
             ui.separator();
+
+            ui.colored_label(theme::tokens::TEXT_MUTED, &self.server_name);
+            ui.separator();
+
+            // `self.output_dims` already mirrors `shared.latest_output`'s dims every frame (see
+            // `refresh_preview`) — no separate `SharedState` read is needed here. Hidden entirely
+            // (no placeholder text) until the worker has published its first output frame.
+            if let Some((width, height)) = self.output_dims {
+                ui.label(format!("{width}x{height}"));
+                ui.separator();
+            }
 
             let rate = self.fps.rate(Instant::now());
             ui.label(format!("{rate:.0} fps"));
-            ui.separator();
-
-            let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
-            if running {
-                ui.colored_label(theme::tokens::ACCENT_PUBLISH, "\u{25cf} publishing");
-            } else {
-                ui.colored_label(theme::tokens::ACCENT_IDLE, "\u{25cb} stopped");
-            }
         });
     }
 
@@ -470,7 +591,9 @@ impl eframe::App for GemelliApp {
     // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_errors();
+        self.poll_menu_actions(ui.ctx());
         self.refresh_preview(ui.ctx());
+        self.licenses.show(ui.ctx());
 
         if let Some(message) = self.banner.clone() {
             egui::Panel::top("banner").show(ui, |ui| {
@@ -483,8 +606,8 @@ impl eframe::App for GemelliApp {
             });
         }
 
-        egui::Panel::left("sidebar").resizable(false).min_size(220.0).show(ui, |ui| {
-            self.sidebar_ui(ui);
+        egui::Panel::top("controls").show(ui, |ui| {
+            self.controls_ui(ui);
         });
 
         egui::Panel::bottom("statusbar").show(ui, |ui| {
@@ -509,9 +632,36 @@ mod tests {
     use gemelli_core::capture::CaptureError;
     use gemelli_core::transform::{CropRect, Flip, Rotation, ScaleSpec, TransformConfig};
 
-    use super::{build_transform, drain_stale_errors, flip_from_toggles, refit_crop};
+    use super::{
+        build_transform, drain_stale_errors, flip_from_toggles, refit_crop,
+        rotation_from_segment_index, rotation_segment_index,
+    };
     use crate::sidebar::ScaleInput;
     use crate::worker::WorkerError;
+
+    #[test]
+    fn rotation_segment_index_covers_all_four_states_in_0_90_180_270_order() {
+        assert_eq!(rotation_segment_index(Rotation::R0), 0);
+        assert_eq!(rotation_segment_index(Rotation::R90), 1);
+        assert_eq!(rotation_segment_index(Rotation::R180), 2);
+        assert_eq!(rotation_segment_index(Rotation::R270), 3);
+    }
+
+    #[test]
+    fn rotation_from_segment_index_is_the_exact_inverse() {
+        assert_eq!(rotation_from_segment_index(0), Rotation::R0);
+        assert_eq!(rotation_from_segment_index(1), Rotation::R90);
+        assert_eq!(rotation_from_segment_index(2), Rotation::R180);
+        assert_eq!(rotation_from_segment_index(3), Rotation::R270);
+    }
+
+    #[test]
+    fn rotation_index_round_trips_for_every_state() {
+        for rotation in [Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270] {
+            let index = rotation_segment_index(rotation);
+            assert_eq!(rotation_from_segment_index(index), rotation, "rotation={rotation:?}");
+        }
+    }
 
     #[test]
     fn flip_from_toggles_covers_all_four_combinations() {
