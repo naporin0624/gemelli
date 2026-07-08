@@ -19,3 +19,6 @@ arc-swap = { workspace = true }
 # table here: release-please's Rust manifest updater cannot parse cfg()
 # target tables and fails to bump this crate's version.
 gemelli-syphon = { path = "../syphon" }
+# Same non-cfg-gated dependency pattern as gemelli-syphon (see the comment
+# above): platform gating lives inside gemelli-spout's crate-wide cfg.
+gemelli-spout = { path = "../spout" }
