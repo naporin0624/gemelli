@@ -69,13 +69,20 @@ bool syphon_bridge_send_rgba(SyphonBridgeHandle* handle,
     }
 
     @autoreleasepool {
+        // Metal requires an IOSurface-backed texture's stride to satisfy the
+        // platform row-alignment (16 bytes for BGRA8); the caller's stride is
+        // the tightly-packed source layout, which a cropped width can leave
+        // unaligned.
+        size_t surfaceBytesPerRow =
+            IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, (size_t)width * 4);
+
         NSDictionary* surfaceProps = @{
             (NSString*)kIOSurfaceWidth: @(width),
             (NSString*)kIOSurfaceHeight: @(height),
             (NSString*)kIOSurfaceBytesPerElement: @4,
-            (NSString*)kIOSurfaceBytesPerRow: @(bytes_per_row),
+            (NSString*)kIOSurfaceBytesPerRow: @(surfaceBytesPerRow),
             (NSString*)kIOSurfacePixelFormat: @(kCVPixelFormatType_32BGRA),
-            (NSString*)kIOSurfaceAllocSize: @((size_t)bytes_per_row * (size_t)height),
+            (NSString*)kIOSurfaceAllocSize: @(surfaceBytesPerRow * (size_t)height),
         };
 
         IOSurfaceRef surface = IOSurfaceCreate((__bridge CFDictionaryRef)surfaceProps);
