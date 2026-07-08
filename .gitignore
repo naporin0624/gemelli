@@ -20,3 +20,6 @@
 
 # node dependencies
 node_modules/
+
+# git worktrees for parallel agent sessions
+/.claude/worktrees/
