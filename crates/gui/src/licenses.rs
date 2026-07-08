@@ -99,25 +99,32 @@ fn render_entry_list(
                 continue;
             };
 
-            ui.horizontal(|ui| {
-                let name_clicked =
-                    ui.add(egui::Label::new(&entry.name).sense(egui::Sense::click())).clicked();
-                ui.label(version_display(&entry.version));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.colored_label(
-                        theme::tokens::TEXT_SUBTLE,
-                        license_badge_text(&entry.license),
-                    );
-                });
+            // `ui.horizontal`'s own `Response` only senses hover (see egui 0.35
+            // `Ui::horizontal`'s doc comment and body, ui.rs ~line 2312: `let response =
+            // self.allocate_rect(child_ui.min_rect(), Sense::hover());`), so `.interact` is
+            // called to add click sensing to the whole row's rect — clicking anywhere in the
+            // row (name, version, or badge) toggles expansion, not just the name text.
+            let row_response = ui
+                .horizontal(|ui| {
+                    ui.label(&entry.name);
+                    ui.label(version_display(&entry.version));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.colored_label(
+                            theme::tokens::TEXT_SUBTLE,
+                            license_badge_text(&entry.license),
+                        );
+                    });
+                })
+                .response
+                .interact(egui::Sense::click());
 
-                if name_clicked {
-                    if expanded.contains(&index) {
-                        expanded.remove(&index);
-                    } else {
-                        expanded.insert(index);
-                    }
+            if row_response.clicked() {
+                if expanded.contains(&index) {
+                    expanded.remove(&index);
+                } else {
+                    expanded.insert(index);
                 }
-            });
+            }
 
             if expanded.contains(&index) {
                 egui::Frame::NONE.fill(theme::tokens::BG_MUTED).inner_margin(8.0).show(ui, |ui| {

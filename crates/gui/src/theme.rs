@@ -50,11 +50,8 @@ pub mod tokens {
     pub const BG_BASE: Color32 = Color32::from_rgb(18, 18, 18);
     /// Panel/sidebar/status-bar background — Cannelloni `dark.subtle` (oklch 0.225 0 0).
     pub const BG_PANEL: Color32 = Color32::from_rgb(28, 28, 28);
-    /// Expanded-row background — Cannelloni `dark.muted` (oklch 0.270 0 0). Not yet
-    /// consumed: reserved for the licenses window's expanded-entry background
-    /// (design doc section 3, a later task) — `allow(dead_code)` until that call
-    /// site exists.
-    #[allow(dead_code)]
+    /// Expanded-row background — Cannelloni `dark.muted` (oklch 0.270 0 0). Fills
+    /// the licenses window's expanded license-text rows.
     pub const BG_MUTED: Color32 = Color32::from_rgb(38, 38, 38);
 
     /// Primary text — Cannelloni `gray.1` (oklch 0.952 0.004 265).
