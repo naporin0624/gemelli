@@ -74,6 +74,20 @@ pub mod tokens {
     pub const CROP_OVERLAY: Color32 = Color32::WHITE;
 }
 
+/// Applies the `tokens` palette to `ctx`'s `Visuals`. Called once at
+/// startup from `GemelliApp::new`.
+pub fn apply_theme(ctx: &egui::Context) {
+    let mut visuals = egui::Visuals::dark();
+    visuals.window_fill = tokens::BG_BASE;
+    visuals.panel_fill = tokens::BG_PANEL;
+    visuals.override_text_color = Some(tokens::TEXT_PRIMARY);
+    visuals.weak_text_color = Some(tokens::TEXT_MUTED);
+    visuals.hyperlink_color = tokens::ACCENT_PUBLISH;
+    visuals.selection.bg_fill = tokens::ACCENT_PUBLISH;
+    visuals.selection.stroke = egui::Stroke::new(1.0, tokens::TEXT_PRIMARY);
+    ctx.set_visuals(visuals);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +136,17 @@ mod tests {
     #[test]
     fn accent_idle_meets_ui_component_contrast_on_bg_panel() {
         assert!(contrast_ratio(tokens::ACCENT_IDLE, tokens::BG_PANEL) >= 3.0);
+    }
+
+    #[test]
+    fn apply_theme_sets_dark_mode_and_token_fills() {
+        let ctx = egui::Context::default();
+        apply_theme(&ctx);
+        let visuals = ctx.global_style().visuals.clone();
+        assert!(visuals.dark_mode);
+        assert_eq!(visuals.window_fill, tokens::BG_BASE);
+        assert_eq!(visuals.panel_fill, tokens::BG_PANEL);
+        assert_eq!(visuals.override_text_color, Some(tokens::TEXT_PRIMARY));
+        assert_eq!(visuals.weak_text_color, Some(tokens::TEXT_MUTED));
     }
 }

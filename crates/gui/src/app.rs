@@ -4,7 +4,8 @@
 pub struct GemelliApp {}
 
 impl GemelliApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        crate::theme::apply_theme(&cc.egui_ctx);
         Self {}
     }
 }
