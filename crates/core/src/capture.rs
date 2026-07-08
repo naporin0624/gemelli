@@ -27,6 +27,8 @@ pub enum CaptureError {
     FrameRead { reason: String },
     #[error("unsupported camera pixel format: {format}")]
     FormatUnsupported { format: String },
+    #[error("failed to query devices: {reason}")]
+    QueryFailed { reason: String },
 }
 
 /// Converts tightly-packed RGB8 to tightly-packed BGRA8 with opaque alpha.
@@ -66,6 +68,10 @@ fn frame_read_failed(error: NokhwaError) -> CaptureError {
     CaptureError::FrameRead { reason: error.to_string() }
 }
 
+fn query_failed(error: NokhwaError) -> CaptureError {
+    CaptureError::QueryFailed { reason: error.to_string() }
+}
+
 fn requested_format_type(requested_fps: Option<u32>) -> RequestedFormatType {
     match requested_fps {
         Some(fps) => RequestedFormatType::HighestFrameRate(fps),
@@ -74,7 +80,7 @@ fn requested_format_type(requested_fps: Option<u32>) -> RequestedFormatType {
 }
 
 pub fn list_devices() -> Result<Vec<DeviceInfo>, CaptureError> {
-    let infos = nokhwa::query(ApiBackend::Auto).map_err(|_error| CaptureError::NoDevices)?;
+    let infos = nokhwa::query(ApiBackend::Auto).map_err(query_failed)?;
 
     devices_from(infos)
 }
@@ -112,7 +118,7 @@ impl CaptureSource for NokhwaSource {
 mod tests {
     use super::{
         CaptureError, CaptureSource, DeviceInfo, devices_from, frame_read_failed, index_number,
-        open_failed, requested_format_type, rgb_to_bgra, to_device_info,
+        open_failed, query_failed, requested_format_type, rgb_to_bgra, to_device_info,
     };
     use crate::frame::Frame;
 
@@ -234,6 +240,20 @@ mod tests {
         let mapped = frame_read_failed(error);
 
         assert!(matches!(mapped, CaptureError::FrameRead { .. }));
+    }
+
+    #[test]
+    fn query_failed_wraps_nokhwa_error_text() {
+        let error = nokhwa::NokhwaError::GeneralError("permission denied".to_string());
+
+        let mapped = query_failed(error);
+
+        match mapped {
+            CaptureError::QueryFailed { reason } => {
+                assert!(reason.contains("permission denied"));
+            }
+            other => panic!("expected QueryFailed, got {other:?}"),
+        }
     }
 
     #[test]
