@@ -63,12 +63,11 @@ pub mod tokens {
     pub const TEXT_MUTED: Color32 = Color32::from_rgb(201, 204, 209);
     /// Idle-state text — Cannelloni `gray.8` (oklch 0.700 0.013 265). Paired with
     /// the "○ stopped" text label at the call site — never color alone (WCAG 1.4.1).
-    /// Replaces the old `ACCENT_IDLE`.
     pub const TEXT_SUBTLE: Color32 = Color32::from_rgb(154, 158, 167);
 
     /// Publishing state / links / selection fill — Cannelloni `neon.blue`
     /// (oklch 0.700 0.235 260). Paired with the "● publishing" text label at the
-    /// call site — never color alone (WCAG 1.4.1). Replaces the old `ACCENT_PUBLISH`.
+    /// call site — never color alone (WCAG 1.4.1).
     /// Used as both a UI-component color (selection fill, 3.0:1 threshold) and as
     /// text (hyperlinks, the publishing label), so it is proved against the
     /// stricter 4.5:1 normal-text threshold.
@@ -108,7 +107,7 @@ pub mod tokens {
 
     /// Crop-rect stroke. Drawn as a dual stroke (black outline + white core) at
     /// the `preview_ui` call site, since no single color has a provable contrast
-    /// ratio against arbitrary live video content. Unchanged by the retheme.
+    /// ratio against arbitrary live video content.
     pub const CROP_OVERLAY: Color32 = Color32::WHITE;
 }
 
