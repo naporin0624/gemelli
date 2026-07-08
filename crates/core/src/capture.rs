@@ -1,5 +1,6 @@
-use nokhwa::NokhwaError;
-use nokhwa::utils::{CameraIndex, CameraInfo, RequestedFormatType};
+use nokhwa::pixel_format::RgbFormat;
+use nokhwa::utils::{ApiBackend, CameraIndex, CameraInfo, RequestedFormat, RequestedFormatType};
+use nokhwa::{Camera, NokhwaError};
 use thiserror::Error;
 
 use crate::frame::Frame;
@@ -29,7 +30,6 @@ pub enum CaptureError {
 }
 
 /// Converts tightly-packed RGB8 to tightly-packed BGRA8 with opaque alpha.
-#[allow(dead_code)]
 fn rgb_to_bgra(rgb: &[u8], width: u32, height: u32) -> Vec<u8> {
     let pixel_count =
         usize::try_from(width).unwrap_or(0).saturating_mul(usize::try_from(height).unwrap_or(0));
@@ -42,17 +42,14 @@ fn rgb_to_bgra(rgb: &[u8], width: u32, height: u32) -> Vec<u8> {
     bgra
 }
 
-#[allow(dead_code)]
 fn index_number(index: &CameraIndex) -> u32 {
     index.as_index().unwrap_or(0)
 }
 
-#[allow(dead_code)]
 fn to_device_info(info: &CameraInfo) -> DeviceInfo {
     DeviceInfo { index: index_number(info.index()), name: info.human_name() }
 }
 
-#[allow(dead_code)]
 fn devices_from(infos: Vec<CameraInfo>) -> Result<Vec<DeviceInfo>, CaptureError> {
     if infos.is_empty() {
         return Err(CaptureError::NoDevices);
@@ -61,21 +58,53 @@ fn devices_from(infos: Vec<CameraInfo>) -> Result<Vec<DeviceInfo>, CaptureError>
     Ok(infos.iter().map(to_device_info).collect())
 }
 
-#[allow(dead_code)]
 fn open_failed(index: u32, error: NokhwaError) -> CaptureError {
     CaptureError::OpenFailed { index, reason: error.to_string() }
 }
 
-#[allow(dead_code)]
 fn frame_read_failed(error: NokhwaError) -> CaptureError {
     CaptureError::FrameRead { reason: error.to_string() }
 }
 
-#[allow(dead_code)]
 fn requested_format_type(requested_fps: Option<u32>) -> RequestedFormatType {
     match requested_fps {
         Some(fps) => RequestedFormatType::HighestFrameRate(fps),
         None => RequestedFormatType::AbsoluteHighestFrameRate,
+    }
+}
+
+pub fn list_devices() -> Result<Vec<DeviceInfo>, CaptureError> {
+    let infos = nokhwa::query(ApiBackend::Auto).map_err(|_error| CaptureError::NoDevices)?;
+
+    devices_from(infos)
+}
+
+pub struct NokhwaSource {
+    camera: Camera,
+}
+
+impl NokhwaSource {
+    pub fn open(index: u32, requested_fps: Option<u32>) -> Result<Self, CaptureError> {
+        let format_type = requested_format_type(requested_fps);
+        let requested = RequestedFormat::new::<RgbFormat>(format_type);
+        let mut camera = Camera::new(CameraIndex::Index(index), requested)
+            .map_err(|error| open_failed(index, error))?;
+        camera.open_stream().map_err(|error| open_failed(index, error))?;
+
+        Ok(Self { camera })
+    }
+}
+
+impl CaptureSource for NokhwaSource {
+    fn next_frame(&mut self) -> Result<Frame, CaptureError> {
+        let buffer = self.camera.frame().map_err(frame_read_failed)?;
+        let decoded = buffer.decode_image::<RgbFormat>().map_err(frame_read_failed)?;
+        let width = decoded.width();
+        let height = decoded.height();
+        let bgra = rgb_to_bgra(decoded.as_raw(), width, height);
+
+        Frame::new(width, height, bgra)
+            .map_err(|error| CaptureError::FrameRead { reason: error.to_string() })
     }
 }
 
