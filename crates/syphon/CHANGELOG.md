@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-syphon-v0.2.0...gemelli-syphon-v0.3.0) (2026-07-08)
+
+
+### Features
+
+* distribution prep — licenses, Cannelloni retheme, About menu, portrait UI ([5c52886](https://github.com/naporin0624/gemelli/commit/5c5288655017f4e110b086c730849c6559963fa3))
+
+
+### Bug Fixes
+
+* **syphon:** align IOSurface row stride to Metal's 16-byte requirement ([de00fb3](https://github.com/naporin0624/gemelli/commit/de00fb3d54917c097265241e2f106d20b8f5ddf2))
+
 ## [0.2.0](https://github.com/naporin0624/gemelli/compare/gemelli-syphon-v0.1.0...gemelli-syphon-v0.2.0) (2026-07-08)
 
 

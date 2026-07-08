@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.2.0...gemelli-gui-v0.3.0) (2026-07-08)
+
+
+### Features
+
+* distribution prep — licenses, Cannelloni retheme, About menu, portrait UI ([5c52886](https://github.com/naporin0624/gemelli/commit/5c5288655017f4e110b086c730849c6559963fa3))
+* **gui:** add cannelloni widget primitives ([50b03a0](https://github.com/naporin0624/gemelli/commit/50b03a01b2869a8a5e55e77eba568b24d47be3da))
+* **gui:** add licenses data model ([a9ae7a1](https://github.com/naporin0624/gemelli/commit/a9ae7a1429ea1b025d22bd4f0ab85c38c8c52357))
+* **gui:** add native app menu with About via muda ([4afdd07](https://github.com/naporin0624/gemelli/commit/4afdd07a007bf5707837ccb7acadc062ed87b18b))
+* **gui:** add open-source licenses window ([56f483c](https://github.com/naporin0624/gemelli/commit/56f483c8b27bea85e252e9200c9c35448e27f6aa))
+* **gui:** compact controls into a label-left grid ([51fadc8](https://github.com/naporin0624/gemelli/commit/51fadc808a72e682ffad76230e236140a4c1d645))
+* **gui:** embed git build id via vergen-gix ([9e197c5](https://github.com/naporin0624/gemelli/commit/9e197c573b53115ea7b3e843f97c7dfa0f1146d4))
+* **gui:** restructure to portrait controls-top layout ([8313677](https://github.com/naporin0624/gemelli/commit/83136775544aec7016b093ac447828b0506adb16))
+* **gui:** set the app window icon ([2d9d055](https://github.com/naporin0624/gemelli/commit/2d9d0554c949c2b95f3085b521aa173bdd1ce2d3))
+* **xtask:** add gen-licenses command and generated artifacts ([f0e5410](https://github.com/naporin0624/gemelli/commit/f0e54109e600c019761101d9e44f832c1ed35301))
+
+
+### Bug Fixes
+
+* **gui:** correct build-id and border token comments ([7481df2](https://github.com/naporin0624/gemelli/commit/7481df2e8ec88686a8e68bd0554a2a7859b66050))
+* **gui:** describe theme tokens by current role only ([efe067b](https://github.com/naporin0624/gemelli/commit/efe067be33e5eab8b6964f169ed77312fce735dd))
+* **gui:** keep menu comments to current design ([1c41c23](https://github.com/naporin0624/gemelli/commit/1c41c23d5fb331f24da13acb3441cff421b7ac6d))
+* **gui:** make whole license row clickable and drop stale dead_code allow ([0b2838a](https://github.com/naporin0624/gemelli/commit/0b2838ac0c608765cdfc504ce0b0948713fb7c39))
+* **gui:** render flip choices as text labels ([759b66e](https://github.com/naporin0624/gemelli/commit/759b66e5930e175a6592dc5b656cd660c8b2818f))
+* **gui:** state window-size derivation without process context ([c02dbb8](https://github.com/naporin0624/gemelli/commit/c02dbb8fa822e79ebe461f66f56dd5ca88e50182))
+
 ## [0.2.0](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.1.0...gemelli-gui-v0.2.0) (2026-07-08)
 
 
