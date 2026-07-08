@@ -126,6 +126,38 @@ pub fn apply_drag(state: &DragState, mapping: &CropMapping, pointer: egui::Pos2)
     mapping.to_frame(new_screen)
 }
 
+const HANDLE_PX: f32 = 8.0;
+
+/// 8px axis-aligned square hit box, not a circular radius — avoids a
+/// `sqrt` in a per-repaint hit test and gives exact, hand-checkable
+/// pixel boundaries.
+fn hits_corner(pointer: egui::Pos2, corner: egui::Pos2) -> bool {
+    (pointer.x - corner.x).abs() <= HANDLE_PX && (pointer.y - corner.y).abs() <= HANDLE_PX
+}
+
+/// Which handle (or the move area) a pointer press grabs. Corner handles
+/// are checked before the move-area fallback, so a point inside both a
+/// corner's hit box and the rect's interior always resolves to the
+/// corner.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn hit_test(rect_screen: egui::Rect, pointer: egui::Pos2) -> Option<DragMode> {
+    let corners = [
+        (rect_screen.min, DragMode::ResizeNw),
+        (egui::pos2(rect_screen.max.x, rect_screen.min.y), DragMode::ResizeNe),
+        (egui::pos2(rect_screen.min.x, rect_screen.max.y), DragMode::ResizeSw),
+        (rect_screen.max, DragMode::ResizeSe),
+    ];
+    for (corner, mode) in corners {
+        if hits_corner(pointer, corner) {
+            return Some(mode);
+        }
+    }
+    if rect_screen.contains(pointer) {
+        return Some(DragMode::Move);
+    }
+    None
+}
+
 #[cfg(test)]
 mod coord_tests {
     use super::{to_frame_coord, to_screen_coord};
@@ -330,5 +362,56 @@ mod apply_drag_tests {
         let result = apply_drag(&state, &mapping, egui::pos2(230.0, 350.0)); // -30 left, +30 down screen px
 
         assert_eq!(result, CropRect { width: 1050, height: 630, x: 390, y: 270 });
+    }
+}
+
+#[cfg(test)]
+mod hit_test_tests {
+    use super::{DragMode, hit_test};
+
+    // Same screen rect as apply_drag_tests: (260,140)-(580,320).
+    fn rect_screen() -> egui::Rect {
+        egui::Rect::from_min_max(egui::pos2(260.0, 140.0), egui::pos2(580.0, 320.0))
+    }
+
+    #[test]
+    fn exact_corner_hits_return_the_matching_resize_mode() {
+        let rect = rect_screen();
+        assert_eq!(hit_test(rect, egui::pos2(260.0, 140.0)), Some(DragMode::ResizeNw));
+        assert_eq!(hit_test(rect, egui::pos2(580.0, 320.0)), Some(DragMode::ResizeSe));
+        assert_eq!(hit_test(rect, egui::pos2(580.0, 140.0)), Some(DragMode::ResizeNe));
+        assert_eq!(hit_test(rect, egui::pos2(260.0, 320.0)), Some(DragMode::ResizeSw));
+    }
+
+    #[test]
+    fn point_within_8px_of_a_corner_but_outside_the_rect_still_hits_the_handle() {
+        let rect = rect_screen();
+        assert_eq!(hit_test(rect, egui::pos2(255.0, 135.0)), Some(DragMode::ResizeNw));
+    }
+
+    #[test]
+    fn corner_handle_takes_priority_over_move_when_both_would_match() {
+        let rect = rect_screen();
+        // (265,145) is inside the rect (contains() would say Move) AND
+        // within the 8px NW handle box — the handle must win.
+        assert_eq!(hit_test(rect, egui::pos2(265.0, 145.0)), Some(DragMode::ResizeNw));
+    }
+
+    #[test]
+    fn point_on_an_edge_but_far_from_any_corner_is_move() {
+        let rect = rect_screen();
+        assert_eq!(hit_test(rect, egui::pos2(420.0, 140.0)), Some(DragMode::Move));
+    }
+
+    #[test]
+    fn point_inside_and_far_from_every_corner_is_move() {
+        let rect = rect_screen();
+        assert_eq!(hit_test(rect, egui::pos2(420.0, 230.0)), Some(DragMode::Move));
+    }
+
+    #[test]
+    fn point_outside_the_rect_and_every_handle_is_none() {
+        let rect = rect_screen();
+        assert_eq!(hit_test(rect, egui::pos2(1000.0, 1000.0)), None);
     }
 }
