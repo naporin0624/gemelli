@@ -37,10 +37,6 @@ pub fn parse_selection(input: &str, device_count: usize) -> Result<u32, String> 
     Ok(index)
 }
 
-// No production code calls this yet (main.rs wiring happens in Task 13);
-// it exists so the interactive selection loop is ready when main.rs needs it. Remove
-// this `#[allow]` once main.rs consumes it.
-#[allow(dead_code)]
 pub fn choose_device(devices: &[DeviceInfo]) -> Result<u32, CliError> {
     println!("{}", format_devices(devices));
 

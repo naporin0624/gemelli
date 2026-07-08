@@ -36,9 +36,6 @@ pub struct Args {
 }
 
 impl Args {
-    // No production code calls this yet (main.rs wiring happens in Task 13);
-    // only test code exercises it so far. Remove once main.rs consumes it.
-    #[allow(dead_code)]
     pub fn transform_config(&self) -> TransformConfig {
         TransformConfig {
             crop: self.crop,
