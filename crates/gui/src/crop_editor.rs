@@ -55,6 +55,16 @@ impl CropMapping {
         );
         egui::Rect::from_min_size(min, size)
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn to_frame(&self, rect: egui::Rect) -> CropRect {
+        let (scale_x, scale_y) = self.scale_factors();
+        let x = to_frame_coord((rect.min.x - self.draw.min.x) / scale_x);
+        let y = to_frame_coord((rect.min.y - self.draw.min.y) / scale_y);
+        let width = to_frame_coord(rect.width() / scale_x);
+        let height = to_frame_coord(rect.height() / scale_y);
+        clamp_rect(CropRect { width, height, x, y }, self.frame_width, self.frame_height)
+    }
 }
 
 const MIN_CROP_SIDE: u32 = 16;
@@ -117,6 +127,37 @@ mod crop_mapping_tests {
 
         assert_eq!(screen.min, egui::pos2(260.0, 140.0));
         assert_eq!(screen.max, egui::pos2(580.0, 320.0));
+    }
+
+    #[test]
+    fn to_frame_is_the_inverse_of_to_screen() {
+        let mapping = fixture_mapping();
+        let original = CropRect { width: 960, height: 540, x: 480, y: 270 };
+
+        let round_tripped = mapping.to_frame(mapping.to_screen(original));
+
+        // The scale factor (640/1920) has no exact f32 representation, but
+        // to_frame_coord's round() absorbs that error at these magnitudes
+        // — verified by running the real arithmetic (see the fixture note
+        // above), not assumed. Assert within 1px per the contract, even
+        // though this fixture happens to land exactly on `original`.
+        assert!(round_tripped.x.abs_diff(original.x) <= 1);
+        assert!(round_tripped.y.abs_diff(original.y) <= 1);
+        assert!(round_tripped.width.abs_diff(original.width) <= 1);
+        assert!(round_tripped.height.abs_diff(original.height) <= 1);
+    }
+
+    #[test]
+    fn to_frame_clamps_a_rect_that_overhangs_the_draw_area() {
+        let mapping = fixture_mapping();
+        // Screen rect starting right at the draw origin but 3x too wide/
+        // tall for the frame at this scale (960 screen px / (1/3 scale)
+        // = 2880 frame px > 1920 frame_width) — must clamp into bounds.
+        let overhanging = egui::Rect::from_min_size(mapping.draw.min, egui::vec2(960.0, 540.0));
+
+        let frame_rect = mapping.to_frame(overhanging);
+
+        assert_eq!(frame_rect, CropRect { width: 1920, height: 1080, x: 0, y: 0 });
     }
 }
 
