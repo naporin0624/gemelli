@@ -273,4 +273,20 @@ mod run_capture_tests {
         assert_eq!(shared.frames_published.load(Ordering::SeqCst), 2);
         assert!(rx.try_recv().is_err());
     }
+
+    #[test]
+    fn capture_error_is_sent_and_loop_returns() {
+        let mut source = FakeSource::new(vec![]); // next_frame() errors immediately
+        let shared = SharedState::new(TransformConfig::default());
+        let stop = AtomicBool::new(false);
+        let mut publisher = CollectingPublisher::new(|_| {});
+        let (tx, rx) = mpsc::channel::<WorkerError>();
+
+        run_capture(&mut source, &mut publisher, &shared, &stop, &tx);
+
+        let error = rx.try_recv().expect("an error must have been sent");
+        assert!(matches!(error, WorkerError::Capture(CaptureError::FrameRead { .. })));
+        assert_eq!(publisher.published.len(), 0);
+        assert_eq!(shared.frames_published.load(Ordering::SeqCst), 0);
+    }
 }
