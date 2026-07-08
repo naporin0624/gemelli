@@ -43,13 +43,6 @@ fn linearize(channel: u8) -> f64 {
 /// module — see the plan doc for the hand-computed numbers behind each
 /// choice.
 pub mod tokens {
-    // Several tokens (e.g. `ACCENT_IDLE`, `DANGER`, `CROP_OVERLAY`) aren't
-    // consumed by production code until later GUI tasks wire up the status
-    // label, danger button, and crop editor; until then this module's
-    // contrast-proof tests are their only caller, so they'd otherwise be
-    // flagged dead in the non-test build.
-    #![cfg_attr(not(test), allow(dead_code))]
-
     use egui::Color32;
 
     /// Window background. Deliberately not pure black — `#1a1b1e`.
@@ -68,8 +61,8 @@ pub mod tokens {
     /// Crop-rect stroke. Drawn as a dual stroke (black outline + white
     /// core) at the crop_editor.rs call site, since no single color has a
     /// provable contrast ratio against arbitrary live video content. Not
-    /// exercised by a contrast test (see module doc), so it needs its own
-    /// unconditional `allow`.
+    /// wired into production code until Task 7, and not exercised by a
+    /// contrast test, so it needs its own `allow`.
     #[allow(dead_code)]
     pub const CROP_OVERLAY: Color32 = Color32::WHITE;
 }

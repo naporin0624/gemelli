@@ -6,15 +6,10 @@ use std::time::{Duration, Instant};
 
 const WINDOW: Duration = Duration::from_secs(1);
 
-/// Not yet consumed by production code (wired up when the status bar reads
-/// the live frame rate in a later task), hence `allow(dead_code)` outside
-/// `cfg(test)` — same pattern as `theme::contrast_ratio`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct FpsMeter {
     samples: VecDeque<Instant>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl FpsMeter {
     pub fn new() -> Self {
         Self { samples: VecDeque::new() }

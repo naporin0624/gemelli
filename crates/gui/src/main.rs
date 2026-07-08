@@ -6,6 +6,7 @@ mod app;
 mod crop_editor;
 mod fps_meter;
 mod preview;
+mod sidebar;
 mod theme;
 mod worker;
 

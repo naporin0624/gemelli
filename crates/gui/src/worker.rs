@@ -11,11 +11,6 @@ use gemelli_core::frame::Frame;
 use gemelli_core::transform::TransformConfig;
 
 /// Shared between the GUI thread and the capture thread.
-///
-/// Not yet wired into `app.rs` (that lands in Task 6), hence
-/// `allow(dead_code)` outside `cfg(test)` — same pattern as
-/// `theme::contrast_ratio`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct SharedState {
     pub transform: ArcSwap<TransformConfig>,
     pub latest_output: Mutex<Option<Frame>>,
@@ -23,7 +18,6 @@ pub struct SharedState {
     pub frames_published: AtomicU64,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl SharedState {
     pub fn new(config: TransformConfig) -> Self {
         Self {
@@ -100,7 +94,6 @@ fn run_capture_step(
 /// snapshot) -> publish -> store output -> frames_published += 1. On
 /// error: send it on `errors` and return (the thread ends; the GUI
 /// decides whether to respawn).
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn run_capture(
     source: &mut dyn CaptureSource,
     publisher: &mut dyn TexturePublisher,
@@ -121,13 +114,11 @@ pub fn run_capture(
 
 /// Owns the capture thread. Dropping (or calling `stop`) sets the stop
 /// flag and joins.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct WorkerHandle {
     stop: Arc<AtomicBool>,
     join: Option<std::thread::JoinHandle<()>>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl WorkerHandle {
     /// Idempotent: safe to call more than once (`Drop` calls it too).
     pub fn stop(&mut self) {
@@ -168,7 +159,6 @@ fn open_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, Publis
 /// name needs a fresh `NokhwaSource`/publisher, so the GUI stops the old
 /// worker and calls `spawn_worker` again with a new spec rather than
 /// mutating a running one.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct WorkerSpec {
     pub device_index: u32,
     pub requested_fps: Option<u32>,
@@ -178,7 +168,6 @@ pub struct WorkerSpec {
 /// Opens `NokhwaSource` and the publisher on the new thread; open
 /// failures are reported the same way as any other capture-loop error —
 /// sent on `errors`, thread ends without ever calling `run_capture`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn spawn_worker(
     spec: WorkerSpec,
     shared: Arc<SharedState>,

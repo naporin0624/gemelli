@@ -6,21 +6,11 @@ use gemelli_core::frame::Frame;
 /// BGRA8 -> RGBA8 byte swizzle (the channel order `egui::ColorImage`
 /// expects). Pure; any trailing bytes that don't form a full BGRA pixel
 /// are dropped, matching `Frame`'s own tightly-packed invariant.
-///
-/// Not yet called from production code (wired up when the preview panel
-/// consumes it in a later task), hence `allow(dead_code)` outside `cfg(test)`
-/// — same pattern as `theme::contrast_ratio`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
     bgra.chunks_exact(4).flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]]).collect()
 }
 
 /// `Frame` -> `egui::ColorImage` (thin wrapper over `bgra_to_rgba`).
-///
-/// Not yet called from production code (wired up when the preview panel
-/// consumes it in a later task), hence `allow(dead_code)` outside `cfg(test)`
-/// — same pattern as `theme::contrast_ratio`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn color_image(frame: &Frame) -> egui::ColorImage {
     // u32 -> usize: no `From<u32> for usize` exists in std (checked with
     // rustc directly — only `From<u8>`/`From<u16>` do), so this reuses the
@@ -47,11 +37,6 @@ fn dim_to_f32(v: u32) -> f32 {
 
 /// Letterbox-fits a `frame_width x frame_height` frame into `avail`,
 /// preserving aspect ratio and centering the result.
-///
-/// Not yet called from production code (wired up when the preview panel
-/// consumes it in a later task), hence `allow(dead_code)` outside `cfg(test)`
-/// — same pattern as `theme::contrast_ratio`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn fit_rect(frame_width: u32, frame_height: u32, avail: egui::Rect) -> egui::Rect {
     let frame_w = dim_to_f32(frame_width);
     let frame_h = dim_to_f32(frame_height);
