@@ -121,6 +121,61 @@ additional front end, not a replacement — `gemelli-cli` remains the headless p
 scripted/unattended launches), and both share the same `gemelli-core` transform and Syphon
 publish pipeline.
 
+## Install / 配布
+
+gemelli ships as unsigned, un-notarized **universal2** (Apple Silicon + Intel) macOS binaries.
+There is no Windows build yet — Spout support is a trait definition only (see the intro above).
+
+### GUI (エンドユーザ)
+
+1. Download `gemelli-<version>-macos-universal.dmg` from the
+   [GitHub Releases](../../releases) page.
+2. Open the `.dmg` and drag `gemelli.app` into `/Applications`.
+3. Because the app is unsigned, Gatekeeper blocks the first launch. Either:
+   - right-click `gemelli.app` → **Open** and confirm the dialog, or
+   - clear the quarantine attribute from the terminal:
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/gemelli.app
+     ```
+4. On first capture, macOS prompts for camera permission — this is expected; the app declares
+   `NSCameraUsageDescription` ("gemelli shares your camera feed as a Syphon texture.") and needs
+   the permission granted to read any camera frames.
+
+### CLI
+
+1. Download and extract `gemelli-<version>-macos-universal.tar.gz` from the
+   [GitHub Releases](../../releases) page.
+2. Clear quarantine on the extracted directory (same unsigned-build reason as the GUI):
+   ```bash
+   xattr -dr com.apple.quarantine <extracted-dir>
+   ```
+3. Keep `Syphon.framework` next to the `gemelli` binary — the binary resolves it via a relative
+   rpath and will not run if the framework is moved elsewhere. The tarball also contains
+   `THIRD-PARTY-NOTICES` and a `README.txt` with these same instructions.
+4. Run it:
+   ```bash
+   cd <extracted-dir>
+   ./gemelli --help
+   ```
+
+### 開発者 (ローカルビルド)
+
+With the Setup prerequisites above in place (Syphon.framework built from the submodule, fonts
+fetched via `scripts/fetch-fonts.sh`):
+
+```bash
+# .app only, at target/dist/gemelli.app
+cargo xtask bundle
+
+# .app + .dmg + CLI .tar.gz, all under target/dist/
+cargo xtask dist
+```
+
+`cargo xtask dist` builds on `cargo xtask bundle` and additionally writes
+`target/dist/gemelli-<version>-macos-universal.dmg` and
+`target/dist/gemelli-<version>-macos-universal.tar.gz`, where `<version>` is `gemelli-gui`'s
+version from `cargo metadata`. Neither command signs or notarizes the output.
+
 ## Manual verification checklist
 
 The automatable parts of this checklist (build/test/clippy/fmt, `--list-devices`, a timed run
