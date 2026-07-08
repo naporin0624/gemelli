@@ -297,6 +297,20 @@ mod tests {
     }
 
     #[test]
+    fn action_button_hover_text_meets_normal_text_contrast() {
+        // `widgets::action_button` paints BG_BASE text on an ACCENT_HOVER fill
+        // while hovered.
+        assert!(contrast_ratio(tokens::BG_BASE, tokens::ACCENT_HOVER) >= 4.5);
+    }
+
+    #[test]
+    fn segmented_hover_text_meets_normal_text_contrast() {
+        // `widgets::segmented` paints TEXT_MUTED text on a BG_MUTED fill for a
+        // hovered unselected cell.
+        assert!(contrast_ratio(tokens::TEXT_MUTED, tokens::BG_MUTED) >= 4.5);
+    }
+
+    #[test]
     fn apply_theme_sets_border_stroke_on_interactive_widgets() {
         let ctx = egui::Context::default();
         apply_theme(&ctx);

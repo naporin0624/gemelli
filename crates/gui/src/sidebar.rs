@@ -1,4 +1,5 @@
-//! Left-panel widgets. Each function borrows only the fields it needs — none of them touch
+//! Controls-panel widgets (device select, scale, server name, crop) and the pure input-mapping
+//! helpers behind them. Each function borrows only the fields it needs — none of them touch
 //! `SharedState` or `WorkerHandle` directly; `app.rs` owns all side effects.
 
 use gemelli_core::capture::DeviceInfo;
