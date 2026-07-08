@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/cli", "crates/gui", "crates/syphon"]
+members = ["crates/core", "crates/cli", "crates/gui", "crates/syphon", "crates/xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -16,6 +16,8 @@ egui = "0.35"
 arc-swap = "1.9"
 vergen-gix = { version = "10.0.1", features = ["build"] }
 muda = "0.19.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
