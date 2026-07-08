@@ -52,10 +52,10 @@ pub mod tokens {
     pub const BG_PANEL: Color32 = Color32::from_rgb(33, 34, 38);
     pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(230, 230, 230);
     pub const TEXT_MUTED: Color32 = Color32::from_rgb(160, 160, 168);
-    /// Publishing state. Paired with the "● publishing" text label at the
+    /// Publishing state. Paired with the "● 配信中" text label at the
     /// call site — never color alone (WCAG 1.4.1).
     pub const ACCENT_PUBLISH: Color32 = Color32::from_rgb(61, 220, 132);
-    /// Idle state. Paired with the "○ stopped" text label at the call site.
+    /// Idle state. Paired with the "○ 停止中" text label at the call site.
     pub const ACCENT_IDLE: Color32 = Color32::from_rgb(125, 133, 144);
     pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
     /// Crop-rect stroke. Drawn as a dual stroke (black outline + white

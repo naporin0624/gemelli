@@ -85,6 +85,7 @@ pub struct GemelliApp {
 impl GemelliApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply_theme(&cc.egui_ctx);
+        crate::fonts::install_fonts(&cc.egui_ctx);
 
         let (devices, banner) = match capture::list_devices() {
             Ok(devices) => (devices, None),
@@ -213,7 +214,7 @@ impl GemelliApp {
     }
 
     fn sidebar_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Device");
+        ui.heading("デバイス");
         ui.horizontal(|ui| {
             let device_changed =
                 sidebar::device_panel(ui, &self.devices, &mut self.selected_device);
@@ -226,19 +227,19 @@ impl GemelliApp {
         });
 
         ui.add_space(8.0);
-        ui.heading("Rotate");
+        ui.heading("回転");
         if sidebar::rotate_panel(ui, &mut self.rotation) {
             self.push_transform();
         }
 
         ui.add_space(8.0);
-        ui.heading("Flip");
+        ui.heading("反転");
         if sidebar::flip_panel(ui, &mut self.flip_h, &mut self.flip_v) {
             self.push_transform();
         }
 
         ui.add_space(8.0);
-        ui.heading("Crop");
+        ui.heading("クロップ");
         let crop_action =
             crate::sidebar::crop_panel(ui, self.crop, self.preview_mode == PreviewMode::CropEdit);
         match crop_action {
@@ -277,13 +278,13 @@ impl GemelliApp {
         }
 
         ui.add_space(8.0);
-        ui.heading("Scale");
+        ui.heading("拡縮");
         if sidebar::scale_panel(ui, &mut self.scale_input) {
             self.push_transform();
         }
 
         ui.add_space(8.0);
-        ui.heading("Server name");
+        ui.heading("サーバー名");
         let server_name_committed = sidebar::server_name_panel(ui, &mut self.server_name);
         if server_name_committed && self.worker.is_some() {
             self.start_worker();
@@ -316,9 +317,9 @@ impl GemelliApp {
 
             let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
             if running {
-                ui.colored_label(theme::tokens::ACCENT_PUBLISH, "\u{25cf} publishing");
+                ui.colored_label(theme::tokens::ACCENT_PUBLISH, "\u{25cf} 配信中");
             } else {
-                ui.colored_label(theme::tokens::ACCENT_IDLE, "\u{25cb} stopped");
+                ui.colored_label(theme::tokens::ACCENT_IDLE, "\u{25cb} 停止中");
             }
         });
     }
@@ -400,8 +401,8 @@ impl eframe::App for GemelliApp {
         if let Some(message) = self.banner.clone() {
             egui::Panel::top("banner").show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(theme::tokens::DANGER, &message);
-                    if ui.button("Dismiss").clicked() {
+                    ui.colored_label(theme::tokens::DANGER, format!("エラー: {message}"));
+                    if ui.button("閉じる").clicked() {
                         self.banner = None;
                     }
                 });

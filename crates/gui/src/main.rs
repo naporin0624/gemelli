@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 mod app;
 mod crop_editor;
+mod fonts;
 mod fps_meter;
 mod preview;
 mod sidebar;
