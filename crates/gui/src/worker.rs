@@ -249,4 +249,28 @@ mod run_capture_tests {
         assert_eq!(*shared.latest_output.lock().unwrap(), Some(expected_second));
         assert!(rx.try_recv().is_err());
     }
+
+    #[test]
+    fn stop_flag_ends_loop_with_no_error() {
+        let pixel = Frame::new(1, 1, vec![0, 0, 0, 255]).unwrap();
+        let frames = vec![pixel.clone(), pixel.clone(), pixel];
+        let mut source = FakeSource::new(frames);
+        let shared = SharedState::new(TransformConfig::default());
+        let stop = AtomicBool::new(false);
+        let mut publisher = CollectingPublisher::new(|n| {
+            if n == 2 {
+                stop.store(true, Ordering::SeqCst);
+            }
+        });
+        let (tx, rx) = mpsc::channel::<WorkerError>();
+
+        // 3 frames are available but stop_after=2 must end the loop before
+        // the 3rd next_frame() call — if run_capture ignored `stop` this
+        // would instead exhaust FakeSource and send a Capture error.
+        run_capture(&mut source, &mut publisher, &shared, &stop, &tx);
+
+        assert_eq!(publisher.published.len(), 2);
+        assert_eq!(shared.frames_published.load(Ordering::SeqCst), 2);
+        assert!(rx.try_recv().is_err());
+    }
 }
