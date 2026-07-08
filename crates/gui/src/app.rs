@@ -374,12 +374,7 @@ impl GemelliApp {
                 ui,
                 "rotate_segmented",
                 &mut rotate_index,
-                &[
-                    widgets::CellContent::Text("0\u{b0}"),
-                    widgets::CellContent::Text("90\u{b0}"),
-                    widgets::CellContent::Text("180\u{b0}"),
-                    widgets::CellContent::Text("270\u{b0}"),
-                ],
+                &["0\u{b0}", "90\u{b0}", "180\u{b0}", "270\u{b0}"],
             );
             let new_rotation = rotation_from_segment_index(rotate_index);
             if new_rotation != self.rotation {
@@ -390,17 +385,7 @@ impl GemelliApp {
 
         widgets::labeled_row(ui, "Flip", |ui| {
             let mut flip_index = widgets::flip_segment_index(self.flip_h, self.flip_v);
-            widgets::segmented(
-                ui,
-                "flip_segmented",
-                &mut flip_index,
-                &[
-                    widgets::CellContent::Icon(widgets::IconKind::FlipNone),
-                    widgets::CellContent::Icon(widgets::IconKind::FlipHorizontal),
-                    widgets::CellContent::Icon(widgets::IconKind::FlipVertical),
-                    widgets::CellContent::Icon(widgets::IconKind::FlipBoth),
-                ],
-            );
+            widgets::segmented(ui, "flip_segmented", &mut flip_index, &["none", "H", "V", "H+V"]);
             let (new_flip_h, new_flip_v) = widgets::flip_from_segment_index(flip_index);
             if (new_flip_h, new_flip_v) != (self.flip_h, self.flip_v) {
                 self.flip_h = new_flip_h;
@@ -411,12 +396,7 @@ impl GemelliApp {
 
         widgets::labeled_row(ui, "Crop", |ui| {
             let mut crop_index = if self.crop.is_some() { 1 } else { 0 };
-            widgets::segmented(
-                ui,
-                "crop_segmented",
-                &mut crop_index,
-                &[widgets::CellContent::Text("off"), widgets::CellContent::Text("edit\u{2026}")],
-            );
+            widgets::segmented(ui, "crop_segmented", &mut crop_index, &["off", "edit\u{2026}"]);
             match (self.crop.is_some(), crop_index) {
                 (false, 1) => match self.input_dims {
                     Some((frame_w, frame_h)) => {
@@ -463,11 +443,7 @@ impl GemelliApp {
                 ui,
                 "scale_segmented",
                 &mut scale_index,
-                &[
-                    widgets::CellContent::Text("off"),
-                    widgets::CellContent::Text("factor"),
-                    widgets::CellContent::Text("W\u{d7}H"),
-                ],
+                &["off", "factor", "W\u{d7}H"],
             );
             let new_scale_input =
                 sidebar::scale_input_for_mode_index(scale_index, self.scale_input);

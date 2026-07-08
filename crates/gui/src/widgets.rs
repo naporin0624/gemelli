@@ -1,13 +1,11 @@
 //! Shared custom-painted widgets for the compact label-left controls grid: a brow label, a
-//! full-width segmented control (text or painter-drawn icon cells), a full-width action button,
-//! and the vector icons all three lean on. Everything paints directly with `ui.painter()` (rather
-//! than composing `egui::Button`/`egui::SelectableLabel`/font glyphs/SVG assets) so fill, text
-//! color, and icon geometry all follow `theme::tokens` and this module's own shapes exactly —
-//! icons are painter primitives (lines, filled triangles, arcs) specifically because font glyphs
-//! for FLIP's mirror icons don't exist in any font this app loads (no candidate codepoint like
-//! U+21CB renders in LINE Seed JP or any of egui's built-in fonts — real glyph coverage was
-//! checked directly against those font files), and SVG assets were rejected — `resvg`/`usvg` are
-//! MPL-2.0, which this repo's `deny.toml` permissive-only license policy forbids.
+//! full-width segmented control (text-label cells), a full-width action button, and the vector
+//! icons the action button and the DEVICE row's refresh control lean on. Everything paints
+//! directly with `ui.painter()` (rather than composing `egui::Button`/`egui::SelectableLabel`/SVG
+//! assets) so fill, text color, and icon geometry all follow `theme::tokens` and this module's own
+//! shapes exactly — the two remaining icons (play triangle, refresh arc) are painter primitives
+//! (lines, a filled triangle, an arc) rather than SVG assets because `resvg`/`usvg` are MPL-2.0,
+//! which this repo's `deny.toml` permissive-only license policy forbids.
 
 use crate::theme;
 
@@ -103,132 +101,27 @@ pub(crate) fn flip_from_segment_index(index: usize) -> (bool, bool) {
     }
 }
 
-/// One `segmented` cell's visual content: a short text label (ROTATE/CROP/SCALE) or a
-/// painter-drawn icon (FLIP's four cells — see the module doc for why icons are vector shapes,
-/// not glyphs). FLIP's own cells never mix the two variants; a segmented control this app builds
-/// is either all-`Text` or all-`Icon`, for one consistent visual language per control, but
-/// `segmented` itself doesn't enforce that — it just renders whatever `Copy` enum each cell
-/// carries.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum CellContent<'a> {
-    Text(&'a str),
-    Icon(IconKind),
-}
-
-/// Which vector icon `paint_icon` draws. One variant per icon this app needs: FLIP's four states,
-/// the DEVICE row's refresh button, and the action button's play/stop prefix — every painter-drawn
-/// icon in the app shares this one dispatch point.
+/// Which vector icon `paint_icon` draws: the action button's play/stop prefix and the DEVICE row's
+/// refresh button — every painter-drawn icon in the app shares this one dispatch point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IconKind {
-    FlipNone,
-    FlipHorizontal,
-    FlipVertical,
-    FlipBoth,
     Refresh,
     Play,
     Stop,
 }
 
-/// Which way `triangle_points` points its triangle's tip.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TriangleDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-/// Solid triangle inscribed in `rect`, tip pointing `direction`, base flush with the opposite
-/// edge. Pure geometry (no painting) so symmetry and containment are unit-testable without a
-/// `Painter`. Used both for `mirror_triangle_pair`'s FLIP icons and standalone for the action
-/// button's `Play` icon (`Right`).
-pub(crate) fn triangle_points(rect: egui::Rect, direction: TriangleDirection) -> [egui::Pos2; 3] {
-    match direction {
-        TriangleDirection::Right => {
-            [rect.left_top(), rect.left_bottom(), egui::pos2(rect.right(), rect.center().y)]
-        }
-        TriangleDirection::Left => {
-            [rect.right_top(), rect.right_bottom(), egui::pos2(rect.left(), rect.center().y)]
-        }
-        TriangleDirection::Down => {
-            [rect.left_top(), rect.right_top(), egui::pos2(rect.center().x, rect.bottom())]
-        }
-        TriangleDirection::Up => {
-            [rect.left_bottom(), rect.right_bottom(), egui::pos2(rect.center().x, rect.top())]
-        }
-    }
-}
-
-/// Which pair of `rect`'s halves `mirror_triangle_pair` splits: `Horizontal` divides left/right
-/// (for the FLIP-H icon — divider is a vertical line, triangles point left and right, away from
-/// each other); `Vertical` divides top/bottom (for FLIP-V — divider is horizontal, triangles point
-/// up and down).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MirrorAxis {
-    Horizontal,
-    Vertical,
-}
-
-/// Point geometry for one FLIP icon's mirrored-triangle-pair: two triangles pointing away from
-/// each other across a center divider (the standard "mirror" glyph convention — each half
-/// reflects into the other), plus the divider itself as a line segment. Pure geometry (no
-/// painting) so the pair's symmetry and the divider's placement are unit-testable.
-pub(crate) fn mirror_triangle_pair(
-    rect: egui::Rect,
-    axis: MirrorAxis,
-) -> ([egui::Pos2; 3], [egui::Pos2; 3], [egui::Pos2; 2]) {
-    match axis {
-        MirrorAxis::Horizontal => {
-            let left_half = egui::Rect::from_min_max(
-                rect.left_top(),
-                egui::pos2(rect.center().x, rect.bottom()),
-            );
-            let right_half = egui::Rect::from_min_max(
-                egui::pos2(rect.center().x, rect.top()),
-                rect.right_bottom(),
-            );
-            let left_triangle = triangle_points(left_half, TriangleDirection::Left);
-            let right_triangle = triangle_points(right_half, TriangleDirection::Right);
-            let divider = [
-                egui::pos2(rect.center().x, rect.top()),
-                egui::pos2(rect.center().x, rect.bottom()),
-            ];
-            (left_triangle, right_triangle, divider)
-        }
-        MirrorAxis::Vertical => {
-            let top_half = egui::Rect::from_min_max(
-                rect.left_top(),
-                egui::pos2(rect.right(), rect.center().y),
-            );
-            let bottom_half = egui::Rect::from_min_max(
-                egui::pos2(rect.left(), rect.center().y),
-                rect.right_bottom(),
-            );
-            let top_triangle = triangle_points(top_half, TriangleDirection::Up);
-            let bottom_triangle = triangle_points(bottom_half, TriangleDirection::Down);
-            let divider = [
-                egui::pos2(rect.left(), rect.center().y),
-                egui::pos2(rect.right(), rect.center().y),
-            ];
-            (top_triangle, bottom_triangle, divider)
-        }
-    }
+/// Solid right-pointing triangle inscribed in `rect` — the action button's play icon. Pure
+/// geometry (no painting) so its shape stays unit-testable without a `Painter`.
+pub(crate) fn play_triangle_points(rect: egui::Rect) -> [egui::Pos2; 3] {
+    [rect.left_top(), rect.left_bottom(), egui::pos2(rect.right(), rect.center().y)]
 }
 
 /// Centers a `size x size` square icon bounding box inside `cell_rect`. Every painter-drawn icon
-/// here (triangles, mirror pairs, the refresh arc) is computed against a square rect regardless of
-/// the cell's own (usually wider-than-tall) shape, so this is the one place that reconciles the
-/// two — pure geometry, unit-tested for centering.
+/// here (the play triangle, the refresh arc) is computed against a square rect regardless of the
+/// cell's own (usually wider-than-tall) shape, so this is the one place that reconciles the two —
+/// pure geometry, unit-tested for centering.
 pub(crate) fn icon_rect(cell_rect: egui::Rect, size: f32) -> egui::Rect {
     egui::Rect::from_center_size(cell_rect.center(), egui::vec2(size, size))
-}
-
-/// Thin horizontal bar centered in `rect`, used for the FLIP-none icon (the "no transform" state
-/// reads as a plain dash — deliberately the least visually busy of the four FLIP icons). Pure
-/// geometry so its centering and thickness ratio are unit-tested.
-pub(crate) fn dash_rect(rect: egui::Rect) -> egui::Rect {
-    let thickness = (rect.height() * 0.18).max(2.0);
-    egui::Rect::from_center_size(rect.center(), egui::vec2(rect.width(), thickness))
 }
 
 /// Number of straight segments approximating the refresh icon's circular arc as a polyline —
@@ -285,35 +178,6 @@ pub(crate) fn refresh_arrowhead_points(rect: egui::Rect) -> [egui::Pos2; 3] {
     [tip, base_center + normal * (size * 0.6), base_center - normal * (size * 0.6)]
 }
 
-fn paint_flip_none(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
-    painter.rect_filled(dash_rect(rect), 0.0, color);
-}
-
-fn paint_mirror_pair(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    color: egui::Color32,
-    axis: MirrorAxis,
-) {
-    let (first, second, divider) = mirror_triangle_pair(rect, axis);
-    painter.add(egui::epaint::PathShape::convex_polygon(first.to_vec(), color, egui::Stroke::NONE));
-    painter.add(egui::epaint::PathShape::convex_polygon(
-        second.to_vec(),
-        color,
-        egui::Stroke::NONE,
-    ));
-    painter.line_segment(divider, egui::Stroke::new(2.0, color));
-}
-
-fn paint_flip_both(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
-    // Both mirror pairs overlaid at once would visually collide at full size, so each half draws
-    // into a shrunk-and-offset sub-rect instead — same convention a compound "H+V" icon needs
-    // regardless of which two base icons it's combining.
-    let shrunk = egui::Rect::from_center_size(rect.center(), rect.size() * 0.68);
-    paint_mirror_pair(painter, shrunk, color, MirrorAxis::Horizontal);
-    paint_mirror_pair(painter, shrunk, color, MirrorAxis::Vertical);
-}
-
 fn paint_refresh(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
     painter.add(egui::epaint::PathShape::line(
         refresh_arc_points(rect),
@@ -328,7 +192,7 @@ fn paint_refresh(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32
 }
 
 fn paint_play(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
-    let points = triangle_points(rect, TriangleDirection::Right);
+    let points = play_triangle_points(rect);
     painter.add(egui::epaint::PathShape::convex_polygon(
         points.to_vec(),
         color,
@@ -349,10 +213,6 @@ pub(crate) fn paint_icon(
     kind: IconKind,
 ) {
     match kind {
-        IconKind::FlipNone => paint_flip_none(painter, rect, color),
-        IconKind::FlipHorizontal => paint_mirror_pair(painter, rect, color, MirrorAxis::Horizontal),
-        IconKind::FlipVertical => paint_mirror_pair(painter, rect, color, MirrorAxis::Vertical),
-        IconKind::FlipBoth => paint_flip_both(painter, rect, color),
         IconKind::Refresh => paint_refresh(painter, rect, color),
         IconKind::Play => paint_play(painter, rect, color),
         IconKind::Stop => paint_stop(painter, rect, color),
@@ -409,15 +269,12 @@ pub(crate) fn labeled_row<R>(
     .inner
 }
 
-/// Full-width segmented control: `count = cells.len()` equal-ish cells (see `cell_bounds`), one
+/// Full-width segmented control: `count = labels.len()` equal-ish cells (see `cell_bounds`), one
 /// shared 2px `BORDER` outline around the whole control instead of a border per cell, and 2px
-/// vertical separators between cells. Selected cell: `ACCENT` fill + `BG_BASE` content (inverted,
-/// to match `theme::apply_theme`'s selection scheme). Unselected: `BG_PANEL` fill + `TEXT_MUTED`
-/// content, or `BG_MUTED` fill when hovered — `ACCENT_HOVER` is reserved for `action_button` alone,
-/// so segmented-cell hover uses a neutral fill instead of the accent hover token. Each cell's
-/// content is either a text label or a painter-drawn icon (`CellContent`) — same fill/hover/select
-/// logic either way, since the color already carries the selected/unselected distinction and the
-/// icon geometry carries its own shape distinction (WCAG 1.4.1: not color alone).
+/// vertical separators between cells. Selected cell: `ACCENT` fill + `BG_BASE` text (inverted, to
+/// match `theme::apply_theme`'s selection scheme). Unselected: `BG_PANEL` fill + `TEXT_MUTED` text,
+/// or `BG_MUTED` fill when hovered — `ACCENT_HOVER` is reserved for `action_button` alone, so
+/// segmented-cell hover uses a neutral fill instead of the accent hover token.
 ///
 /// `id_salt` is threaded into an explicit `egui::Id` (rather than relying on the auto-id egui
 /// would otherwise assign this call site) so this control's identity survives if the surrounding
@@ -427,9 +284,9 @@ pub(crate) fn segmented(
     ui: &mut egui::Ui,
     id_salt: impl std::hash::Hash + std::fmt::Debug,
     selected: &mut usize,
-    cells: &[CellContent<'_>],
+    labels: &[&str],
 ) -> egui::Response {
-    let count = cells.len();
+    let count = labels.len();
     let width = ui.available_width();
     let height = ROW_HEIGHT;
     let (_, rect) = ui.allocate_space(egui::vec2(width, height));
@@ -447,8 +304,8 @@ pub(crate) fn segmented(
 
     let painter = ui.painter();
     let bounds = cell_bounds(width, count);
-    for (index, ((start, end), cell)) in
-        bounds.iter().copied().zip(cells.iter().copied()).enumerate()
+    for (index, ((start, end), label)) in
+        bounds.iter().copied().zip(labels.iter().copied()).enumerate()
     {
         let cell_rect = egui::Rect::from_min_max(
             rect.left_top() + egui::vec2(start, 0.0),
@@ -467,21 +324,13 @@ pub(crate) fn segmented(
             if is_selected { theme::tokens::BG_BASE } else { theme::tokens::TEXT_MUTED };
 
         painter.rect_filled(cell_rect, 0.0, fill);
-        match cell {
-            CellContent::Text(label) => {
-                painter.text(
-                    cell_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    label,
-                    egui::FontId::proportional(13.0),
-                    content_color,
-                );
-            }
-            CellContent::Icon(kind) => {
-                let icon_size = height.min(cell_rect.width()) * 0.55;
-                paint_icon(painter, icon_rect(cell_rect, icon_size), content_color, kind);
-            }
-        }
+        painter.text(
+            cell_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(13.0),
+            content_color,
+        );
     }
 
     for (start, _) in bounds.iter().skip(1) {
@@ -543,9 +392,8 @@ pub(crate) fn action_button(ui: &mut egui::Ui, icon: IconKind, label: &str) -> e
 #[cfg(test)]
 mod tests {
     use super::{
-        CellContent, IconKind, MirrorAxis, TriangleDirection, cell_at, cell_bounds, dash_rect,
-        flip_from_segment_index, flip_segment_index, icon_rect, mirror_triangle_pair,
-        refresh_arc_points, refresh_arrowhead_points, triangle_points,
+        cell_at, cell_bounds, flip_from_segment_index, flip_segment_index, icon_rect,
+        play_triangle_points, refresh_arc_points, refresh_arrowhead_points,
     };
 
     #[test]
@@ -619,91 +467,19 @@ mod tests {
         }
     }
 
-    // `CellContent`/`IconKind` are exercised through `segmented`'s rendering path, which the repo's
-    // "rendering isn't unit-tested" policy excludes — these two asserts just confirm the enums
-    // stay usable as plain data (Copy, matchable) without pulling in a `Painter`.
-    #[test]
-    fn cell_content_variants_are_copy_and_matchable() {
-        let text = CellContent::Text("off");
-        let icon = CellContent::Icon(IconKind::FlipNone);
-        let text_copy = text;
-        let icon_copy = icon;
-        assert!(matches!(text_copy, CellContent::Text("off")));
-        assert!(matches!(icon_copy, CellContent::Icon(IconKind::FlipNone)));
-    }
-
     fn rect(x0: f32, y0: f32, x1: f32, y1: f32) -> egui::Rect {
         egui::Rect::from_min_max(egui::pos2(x0, y0), egui::pos2(x1, y1))
     }
 
-    fn assert_within(point: egui::Pos2, bounds: egui::Rect) {
-        assert!(
-            bounds.left() <= point.x && point.x <= bounds.right(),
-            "x out of bounds: {point:?}"
-        );
-        assert!(
-            bounds.top() <= point.y && point.y <= bounds.bottom(),
-            "y out of bounds: {point:?}"
-        );
-    }
-
     #[test]
-    fn triangle_points_right_tip_touches_the_right_edge_and_base_spans_the_left_edge() {
+    fn play_triangle_points_tip_touches_the_right_edge_and_base_spans_the_left_edge() {
         let r = rect(0.0, 0.0, 10.0, 20.0);
-        let points = triangle_points(r, TriangleDirection::Right);
+        let points = play_triangle_points(r);
         assert_eq!(points[2], egui::pos2(10.0, 10.0));
         assert_eq!(points[0].x, 0.0);
         assert_eq!(points[1].x, 0.0);
         assert_eq!(points[0].y, 0.0);
         assert_eq!(points[1].y, 20.0);
-    }
-
-    #[test]
-    fn triangle_points_left_is_the_horizontal_mirror_of_right() {
-        let r = rect(0.0, 0.0, 10.0, 20.0);
-        let right = triangle_points(r, TriangleDirection::Right);
-        let left = triangle_points(r, TriangleDirection::Left);
-        // Mirroring x across the rect's vertical centerline (cx=5) turns Right into Left.
-        let cx = r.center().x;
-        for point in right {
-            let mirrored = egui::pos2(2.0 * cx - point.x, point.y);
-            assert!(left.contains(&mirrored), "{point:?} has no mirror match in {left:?}");
-        }
-    }
-
-    #[test]
-    fn triangle_points_all_variants_stay_within_the_source_rect() {
-        let r = rect(2.0, 3.0, 12.0, 23.0);
-        for direction in [
-            TriangleDirection::Left,
-            TriangleDirection::Right,
-            TriangleDirection::Up,
-            TriangleDirection::Down,
-        ] {
-            for point in triangle_points(r, direction) {
-                assert_within(point, r);
-            }
-        }
-    }
-
-    #[test]
-    fn mirror_triangle_pair_horizontal_triangles_point_away_from_the_vertical_divider() {
-        let r = rect(0.0, 0.0, 20.0, 10.0);
-        let (left, right, divider) = mirror_triangle_pair(r, MirrorAxis::Horizontal);
-        assert_eq!(divider, [egui::pos2(10.0, 0.0), egui::pos2(10.0, 10.0)]);
-        // Left triangle's tip is its Left-pointing apex, which lands on the half-rect's own left
-        // edge — i.e. the source rect's left edge, the far side from the divider.
-        assert_eq!(left[2].x, 0.0);
-        assert_eq!(right[2].x, 20.0);
-    }
-
-    #[test]
-    fn mirror_triangle_pair_vertical_triangles_point_away_from_the_horizontal_divider() {
-        let r = rect(0.0, 0.0, 10.0, 20.0);
-        let (top, bottom, divider) = mirror_triangle_pair(r, MirrorAxis::Vertical);
-        assert_eq!(divider, [egui::pos2(0.0, 10.0), egui::pos2(10.0, 10.0)]);
-        assert_eq!(top[2].y, 0.0);
-        assert_eq!(bottom[2].y, 20.0);
     }
 
     #[test]
@@ -713,15 +489,6 @@ mod tests {
         assert_eq!(square.center(), r.center());
         assert_eq!(square.width(), 8.0);
         assert_eq!(square.height(), 8.0);
-    }
-
-    #[test]
-    fn dash_rect_is_centered_and_thinner_than_the_source_rect() {
-        let r = rect(0.0, 0.0, 20.0, 20.0);
-        let dash = dash_rect(r);
-        assert_eq!(dash.center(), r.center());
-        assert_eq!(dash.width(), r.width());
-        assert!(dash.height() < r.height());
     }
 
     fn distance(a: egui::Pos2, b: egui::Pos2) -> f32 {
