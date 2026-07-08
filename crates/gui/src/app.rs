@@ -26,6 +26,26 @@ fn flip_from_toggles(h: bool, v: bool) -> Flip {
     }
 }
 
+/// Re-clamps `crop` against a `width x height` frame, for when the capture device's frame size
+/// changes underneath an active crop (e.g. switching to a camera with a different native
+/// resolution). Returns `Some(new_rect)` only when clamping actually moved/shrank the rect —
+/// `None` means `crop` still fits as-is, so the caller has nothing to push. Pure wrapper around
+/// `crop_editor::clamp_rect`, which is itself pure and already covers the min-size/bounds
+/// invariant; this just adds the "did it actually change" check `refresh_preview` needs to
+/// decide whether a `push_transform` is warranted.
+fn refit_crop(crop: CropRect, width: u32, height: u32) -> Option<CropRect> {
+    let clamped = crate::crop_editor::clamp_rect(crop, width, height);
+    (clamped != crop).then_some(clamped)
+}
+
+/// Empties `rx` of every message currently queued, discarding them. Extracted as its own
+/// function (rather than inlined in `start_worker`) so the drain-vs-not-drain logic itself is
+/// unit-testable without spawning a real capture thread — `start_worker`'s own body isn't
+/// testable that way since it opens real camera/publisher resources.
+fn drain_stale_errors(rx: &mpsc::Receiver<WorkerError>) {
+    while rx.try_recv().is_ok() {}
+}
+
 /// Rebuilds the full `TransformConfig` from the sidebar's current widget state. Called after
 /// every widget edit that affects the transform chain; the result is stored into
 /// `shared.transform` by `GemelliApp::push_transform`.
@@ -146,6 +166,14 @@ impl GemelliApp {
 
     fn start_worker(&mut self) {
         self.stop_worker();
+        // INVARIANT: `stop_worker` above blocks until the old worker thread is joined
+        // (`WorkerHandle::stop`), so any `WorkerError` still sitting in `errors_rx` at this
+        // point was necessarily sent by that now-dead thread — it cannot belong to the new
+        // worker spawned below. Without this drain, `drain_errors` (the single consumption
+        // point for this channel) would read that stale error on a later frame, re-raise the
+        // banner, and set `self.worker = None`, killing the brand-new worker for an error
+        // that no longer applies.
+        drain_stale_errors(&self.errors_rx);
         self.banner = None;
         let Some(device) = self.devices.get(self.selected_device) else {
             self.banner = Some("no capture device selected — refresh the device list".to_string());
@@ -174,7 +202,24 @@ impl GemelliApp {
         let output =
             self.shared.latest_output.lock().unwrap_or_else(PoisonError::into_inner).clone();
 
-        self.input_dims = raw.as_ref().map(|frame| (frame.width(), frame.height()));
+        let new_input_dims = raw.as_ref().map(|frame| (frame.width(), frame.height()));
+        // The camera's frame size can change out from under an active crop (switching to a
+        // device with a different native resolution): `crop_panel`'s numeric-edit path already
+        // re-clamps on every keystroke (`CropAction::Edited`), but nothing previously revalidated
+        // `self.crop` when *this* dimension change was the cause. An out-of-bounds crop then
+        // fails `transform::apply` on every frame — the worker sends a `TransformError`,
+        // `drain_errors` tears it down, and the GUI error-loops trying to restart with the same
+        // bad crop. Only re-clamp when the dims actually changed (not every frame) and only push
+        // when the clamp actually moved something (`refit_crop`'s `None` case).
+        if let (Some((width, height)), Some(crop)) = (new_input_dims, self.crop)
+            && new_input_dims != self.input_dims
+            && let Some(refit) = refit_crop(crop, width, height)
+        {
+            self.crop = Some(refit);
+            self.push_transform();
+        }
+
+        self.input_dims = new_input_dims;
         self.output_dims = output.as_ref().map(|frame| (frame.width(), frame.height()));
 
         let displayed = match self.preview_mode {
@@ -436,10 +481,14 @@ impl eframe::App for GemelliApp {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
+
+    use gemelli_core::capture::CaptureError;
     use gemelli_core::transform::{CropRect, Flip, Rotation, ScaleSpec, TransformConfig};
 
-    use super::{build_transform, flip_from_toggles};
+    use super::{build_transform, drain_stale_errors, flip_from_toggles, refit_crop};
     use crate::sidebar::ScaleInput;
+    use crate::worker::WorkerError;
 
     #[test]
     fn flip_from_toggles_covers_all_four_combinations() {
@@ -476,5 +525,44 @@ mod tests {
         let config = build_transform(None, Rotation::R0, false, false, ScaleInput::Off);
 
         assert_eq!(config, TransformConfig::default());
+    }
+
+    #[test]
+    fn drain_stale_errors_empties_every_queued_message() {
+        let (tx, rx) = mpsc::channel();
+        for _ in 0..3 {
+            tx.send(WorkerError::Capture(CaptureError::FrameRead { reason: "stale".to_string() }))
+                .unwrap();
+        }
+
+        drain_stale_errors(&rx);
+
+        assert!(rx.try_recv().is_err(), "channel must be empty after draining");
+    }
+
+    #[test]
+    fn drain_stale_errors_on_an_empty_channel_is_a_no_op() {
+        let (_tx, rx) = mpsc::channel::<WorkerError>();
+
+        drain_stale_errors(&rx); // must not block or panic
+    }
+
+    #[test]
+    fn refit_crop_returns_none_when_the_rect_still_fits() {
+        let crop = CropRect { width: 320, height: 240, x: 100, y: 100 };
+
+        assert_eq!(refit_crop(crop, 1920, 1080), None);
+    }
+
+    #[test]
+    fn refit_crop_returns_the_clamped_rect_when_the_new_frame_is_smaller() {
+        // Device switch shrinks the frame from 1920x1080 to 640x480; the old crop
+        // (960x540 at 800,400) no longer fits at all.
+        let crop = CropRect { width: 960, height: 540, x: 800, y: 400 };
+
+        let refit = refit_crop(crop, 640, 480);
+
+        assert_eq!(refit, Some(crate::crop_editor::clamp_rect(crop, 640, 480)));
+        assert_ne!(refit, Some(crop));
     }
 }
