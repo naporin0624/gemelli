@@ -1,9 +1,17 @@
 use nokhwa::pixel_format::RgbFormat;
-use nokhwa::utils::{ApiBackend, CameraIndex, CameraInfo, RequestedFormat, RequestedFormatType};
+use nokhwa::utils::{
+    ApiBackend, CameraFormat, CameraIndex, CameraInfo, FrameFormat, RequestedFormat,
+    RequestedFormatType, Resolution,
+};
 use nokhwa::{Camera, NokhwaError};
 use thiserror::Error;
 
 use crate::frame::Frame;
+
+/// Resolution cap for the auto-selected MJPEG format. High frame rate is
+/// preferred over resolution, so we never pick a huge low-fps mode.
+const MAX_MJPEG_WIDTH: u32 = 1920;
+const MAX_MJPEG_HEIGHT: u32 = 1080;
 
 pub trait CaptureSource {
     fn next_frame(&mut self) -> Result<Frame, CaptureError>;
@@ -93,6 +101,35 @@ fn format_candidates(requested_fps: Option<u32>) -> Vec<RequestedFormatType> {
     }
 }
 
+/// Chooses the best MJPEG format for high throughput: MJPEG only, within the
+/// resolution cap, preferring the highest frame rate (tie-break: larger area).
+/// With `requested_fps`, prefers the frame rate closest to it instead. Returns
+/// `None` when the camera exposes no MJPEG format within the cap.
+fn select_mjpeg_format(
+    formats: &[CameraFormat],
+    requested_fps: Option<u32>,
+    max_width: u32,
+    max_height: u32,
+) -> Option<CameraFormat> {
+    let area = |f: &CameraFormat| u64::from(f.width()) * u64::from(f.height());
+
+    formats
+        .iter()
+        .copied()
+        .filter(|f| f.format() == FrameFormat::MJPEG)
+        .filter(|f| f.width() <= max_width && f.height() <= max_height)
+        .max_by(|a, b| match requested_fps {
+            Some(fps) => {
+                // Closest frame rate wins; larger area breaks ties.
+                b.frame_rate()
+                    .abs_diff(fps)
+                    .cmp(&a.frame_rate().abs_diff(fps))
+                    .then(area(a).cmp(&area(b)))
+            }
+            None => a.frame_rate().cmp(&b.frame_rate()).then(area(a).cmp(&area(b))),
+        })
+}
+
 pub fn list_devices() -> Result<Vec<DeviceInfo>, CaptureError> {
     let infos = nokhwa::query(ApiBackend::Auto).map_err(query_failed)?;
 
@@ -151,8 +188,9 @@ impl CaptureSource for NokhwaSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureError, CaptureSource, DeviceInfo, devices_from, format_candidates,
-        frame_read_failed, index_number, open_failed, query_failed, rgb_to_bgra, to_device_info,
+        CameraFormat, CaptureError, CaptureSource, DeviceInfo, FrameFormat, MAX_MJPEG_HEIGHT,
+        MAX_MJPEG_WIDTH, Resolution, devices_from, format_candidates, frame_read_failed,
+        index_number, open_failed, query_failed, rgb_to_bgra, select_mjpeg_format, to_device_info,
     };
     use crate::frame::Frame;
 
@@ -349,5 +387,56 @@ mod tests {
             candidates[1],
             nokhwa::utils::RequestedFormatType::AbsoluteHighestResolution
         ));
+    }
+
+    fn fmt(w: u32, h: u32, format: FrameFormat, fps: u32) -> CameraFormat {
+        CameraFormat::new(Resolution::new(w, h), format, fps)
+    }
+
+    #[test]
+    fn select_prefers_highest_frame_rate_mjpeg_when_no_fps_requested() {
+        let formats = vec![
+            fmt(1920, 1080, FrameFormat::MJPEG, 30),
+            fmt(1280, 720, FrameFormat::MJPEG, 60),
+            fmt(1920, 1080, FrameFormat::YUYV, 60),
+        ];
+        let chosen = select_mjpeg_format(&formats, None, MAX_MJPEG_WIDTH, MAX_MJPEG_HEIGHT)
+            .expect("an MJPEG format is available");
+        assert_eq!(chosen.frame_rate(), 60);
+        assert_eq!(chosen.format(), FrameFormat::MJPEG);
+        assert_eq!((chosen.width(), chosen.height()), (1280, 720));
+    }
+
+    #[test]
+    fn select_breaks_frame_rate_ties_on_larger_resolution() {
+        let formats =
+            vec![fmt(1280, 720, FrameFormat::MJPEG, 60), fmt(1920, 1080, FrameFormat::MJPEG, 60)];
+        let chosen =
+            select_mjpeg_format(&formats, None, MAX_MJPEG_WIDTH, MAX_MJPEG_HEIGHT).unwrap();
+        assert_eq!((chosen.width(), chosen.height()), (1920, 1080));
+    }
+
+    #[test]
+    fn select_excludes_mjpeg_above_the_resolution_cap() {
+        let formats = vec![fmt(2304, 1296, FrameFormat::MJPEG, 30)];
+        assert_eq!(select_mjpeg_format(&formats, None, MAX_MJPEG_WIDTH, MAX_MJPEG_HEIGHT), None);
+    }
+
+    #[test]
+    fn select_returns_none_when_no_mjpeg_present() {
+        let formats = vec![fmt(1920, 1080, FrameFormat::YUYV, 60)];
+        assert_eq!(select_mjpeg_format(&formats, None, MAX_MJPEG_WIDTH, MAX_MJPEG_HEIGHT), None);
+    }
+
+    #[test]
+    fn select_picks_closest_frame_rate_to_requested_fps() {
+        let formats = vec![
+            fmt(1920, 1080, FrameFormat::MJPEG, 60),
+            fmt(1920, 1080, FrameFormat::MJPEG, 30),
+            fmt(1280, 720, FrameFormat::MJPEG, 24),
+        ];
+        let chosen =
+            select_mjpeg_format(&formats, Some(30), MAX_MJPEG_WIDTH, MAX_MJPEG_HEIGHT).unwrap();
+        assert_eq!(chosen.frame_rate(), 30);
     }
 }
