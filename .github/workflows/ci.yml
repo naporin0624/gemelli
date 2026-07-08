@@ -19,9 +19,23 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # gemelli-core's nokhwa (input-native) needs V4L headers to build on Linux.
-      - name: Install V4L dev headers
-        run: sudo apt-get update && sudo apt-get install -y libv4l-dev pkg-config
+      # Linux build deps: nokhwa (input-native) needs V4L; gemelli-gui pulls in
+      # muda (GTK -> glib-sys) and eframe/egui (winit/glutin/glow -> X11, Wayland,
+      # xkbcommon, GL). These are the native libraries their build scripts probe
+      # via pkg-config; without them the workspace fails to compile on Ubuntu.
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libv4l-dev \
+            libgtk-3-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libgl1-mesa-dev
 
       # gemelli-gui embeds LINE Seed JP via include_bytes! — see scripts/fetch-fonts.sh.
       - name: Fetch fonts
