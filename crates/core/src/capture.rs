@@ -1,4 +1,5 @@
-use nokhwa::utils::{CameraIndex, CameraInfo};
+use nokhwa::NokhwaError;
+use nokhwa::utils::{CameraIndex, CameraInfo, RequestedFormatType};
 use thiserror::Error;
 
 use crate::frame::Frame;
@@ -60,11 +61,29 @@ fn devices_from(infos: Vec<CameraInfo>) -> Result<Vec<DeviceInfo>, CaptureError>
     Ok(infos.iter().map(to_device_info).collect())
 }
 
+#[allow(dead_code)]
+fn open_failed(index: u32, error: NokhwaError) -> CaptureError {
+    CaptureError::OpenFailed { index, reason: error.to_string() }
+}
+
+#[allow(dead_code)]
+fn frame_read_failed(error: NokhwaError) -> CaptureError {
+    CaptureError::FrameRead { reason: error.to_string() }
+}
+
+#[allow(dead_code)]
+fn requested_format_type(requested_fps: Option<u32>) -> RequestedFormatType {
+    match requested_fps {
+        Some(fps) => RequestedFormatType::HighestFrameRate(fps),
+        None => RequestedFormatType::AbsoluteHighestFrameRate,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureError, CaptureSource, DeviceInfo, devices_from, index_number, rgb_to_bgra,
-        to_device_info,
+        CaptureError, CaptureSource, DeviceInfo, devices_from, frame_read_failed, index_number,
+        open_failed, requested_format_type, rgb_to_bgra, to_device_info,
     };
     use crate::frame::Frame;
 
@@ -167,5 +186,41 @@ mod tests {
                 DeviceInfo { index: 1, name: "Cam B".to_string() },
             ]
         );
+    }
+
+    #[test]
+    fn open_failed_wraps_nokhwa_error_text() {
+        let error =
+            nokhwa::NokhwaError::OpenDeviceError("0".to_string(), "device busy".to_string());
+
+        let mapped = open_failed(0, error);
+
+        assert!(matches!(mapped, CaptureError::OpenFailed { index: 0, .. }));
+    }
+
+    #[test]
+    fn frame_read_failed_wraps_nokhwa_error_text() {
+        let error = nokhwa::NokhwaError::ReadFrameError("timeout".to_string());
+
+        let mapped = frame_read_failed(error);
+
+        assert!(matches!(mapped, CaptureError::FrameRead { .. }));
+    }
+
+    #[test]
+    fn requested_format_type_uses_absolute_highest_frame_rate_by_default() {
+        let format_type = requested_format_type(None);
+
+        assert!(matches!(
+            format_type,
+            nokhwa::utils::RequestedFormatType::AbsoluteHighestFrameRate
+        ));
+    }
+
+    #[test]
+    fn requested_format_type_honors_requested_fps() {
+        let format_type = requested_format_type(Some(30));
+
+        assert!(matches!(format_type, nokhwa::utils::RequestedFormatType::HighestFrameRate(30)));
     }
 }
