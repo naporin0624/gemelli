@@ -31,7 +31,7 @@ pub struct Args {
     #[arg(long, default_value = "gemelli")]
     pub server_name: String,
 
-    #[arg(long)]
+    #[arg(long, value_parser = parse_fps)]
     pub fps: Option<u32>,
 }
 
@@ -63,6 +63,18 @@ fn parse_flip(input: &str) -> Result<Flip, String> {
         "hv" => Ok(Flip::Both),
         other => Err(format!("invalid flip \"{other}\" (expected one of: h, v, hv)")),
     }
+}
+
+fn parse_fps(input: &str) -> Result<u32, String> {
+    let Ok(fps) = input.parse::<u32>() else {
+        return Err(format!("invalid fps \"{input}\" (expected a positive integer)"));
+    };
+
+    if fps == 0 {
+        return Err("invalid fps \"0\" (must be greater than 0)".to_string());
+    }
+
+    Ok(fps)
 }
 
 fn crop_format_error(input: &str) -> String {
@@ -129,6 +141,33 @@ fn parse_scale(input: &str) -> Result<ScaleSpec, String> {
     }
 
     Ok(ScaleSpec::Factor(factor))
+}
+
+#[cfg(test)]
+mod parse_fps_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_positive_values() {
+        assert_eq!(parse_fps("1"), Ok(1));
+        assert_eq!(parse_fps("30"), Ok(30));
+    }
+
+    #[test]
+    fn rejects_zero_with_helpful_message() {
+        let Err(message) = parse_fps("0") else {
+            panic!("expected \"0\" to be rejected");
+        };
+        assert!(message.contains("0"), "message: {message}");
+    }
+
+    #[test]
+    fn rejects_garbage_input() {
+        let Err(message) = parse_fps("abc") else {
+            panic!("expected \"abc\" to be rejected");
+        };
+        assert!(message.contains("abc"), "message: {message}");
+    }
 }
 
 #[cfg(test)]
@@ -265,6 +304,22 @@ mod args_parse_tests {
             panic!("expected parse failure for --rotate 45");
         };
         assert_eq!(error.exit_code(), 2);
+    }
+
+    #[test]
+    fn rejects_fps_zero_with_usage_error() {
+        let Err(error) = Args::try_parse_from(["prog", "0", "--fps", "0"]) else {
+            panic!("expected parse failure for --fps 0");
+        };
+        assert_eq!(error.exit_code(), 2);
+    }
+
+    #[test]
+    fn accepts_fps_one() {
+        let Ok(args) = Args::try_parse_from(["prog", "0", "--fps", "1"]) else {
+            panic!("expected successful parse for --fps 1");
+        };
+        assert_eq!(args.fps, Some(1));
     }
 }
 

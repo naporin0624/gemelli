@@ -90,9 +90,9 @@ pub fn run(args: Args) -> Result<(), CliError> {
         DeviceResolution::NeedsPrompt => choose_device(&devices)?,
     };
 
+    let mut publisher = create_publisher(&args.server_name)?;
     let mut source = NokhwaSource::open(index, args.fps)?;
     let config = args.transform_config();
-    let mut publisher = create_publisher(&args.server_name)?;
 
     let stop = Arc::new(AtomicBool::new(false));
     let handler_stop = Arc::clone(&stop);
