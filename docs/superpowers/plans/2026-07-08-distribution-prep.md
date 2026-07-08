@@ -3135,3 +3135,1151 @@ metadata-level commands.
   This task has no Rust unit tests of its own (it's policy config + CI wiring); its "test" is
   Step 2's local `cargo deny check licenses` run plus watching the new workflow go green on the
   PR this lands in.
+
+---
+
+# Implementation plan addendum — Tasks 9–10 (Phase 3.5: portrait layout + widget fidelity)
+
+Branch: `feature/distribution-prep` (continues the existing task numbering; the last landed
+commit on this branch is `8b6e5b3 perf(gui): share frames via Arc and skip redundant texture
+uploads`). Spec: `docs/superpowers/specs/2026-07-08-portrait-ui-design.md`.
+
+**Verification status for this addendum**: Task 9's `widgets.rs` was fully applied to the working
+tree and verified live — compiled, its 12 unit tests run and pass, `cargo clippy --workspace
+--all-targets -- -D warnings` is clean, `cargo fmt --all -- --check` is clean. Task 10's full
+`app.rs`/`main.rs`/`sidebar.rs` restructure was also fully applied together with Task 9's
+`widgets.rs` and verified live — `cargo check -p gemelli-gui --all-targets` passes, `cargo clippy
+-p gemelli-gui --all-targets -- -D warnings` is clean, `cargo test -p gemelli-gui` passes (114
+tests, 2 ignored — same ignores as before, 0 failures), `cargo fmt --all -- --check` is clean, and
+`cargo run -p gemelli-gui` was launched in the background, observed alive (not crashed) after 12
+seconds, then killed cleanly — no panic. The working tree was then fully reverted
+(`git checkout -- crates/gui/src/app.rs crates/gui/src/main.rs crates/gui/src/sidebar.rs
+crates/gui/src/theme.rs && rm crates/gui/src/widgets.rs`); `git status` confirms the tree is clean
+except for the pre-existing untracked spec doc. Everything below is therefore the exact code that
+was verified to work, not a guess — the two tasks are split back into their intended commit
+boundaries for execution.
+
+All egui/eframe API signatures cited below were read directly from
+`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.35.0/src/` (paths noted inline) —
+none are assumed from memory.
+
+---
+
+## Task 9: `crates/gui/src/widgets.rs` — shared widget primitives (TDD)
+
+### Files
+
+- **New:** `crates/gui/src/widgets.rs`
+- **Modify:** `crates/gui/src/main.rs` (add `mod widgets;`)
+
+### Interfaces (frozen)
+
+```rust
+pub(crate) fn cell_bounds(total_width: f32, count: usize) -> Vec<(f32, f32)>;
+pub(crate) fn cell_at(x_offset: f32, total_width: f32, count: usize) -> usize;
+pub(crate) fn flip_segment_index(h: bool, v: bool) -> usize;
+pub(crate) fn flip_from_segment_index(index: usize) -> (bool, bool);
+pub(crate) fn group_label(ui: &mut egui::Ui, text: &str);
+pub(crate) fn segmented(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    selected: &mut usize,
+    labels: &[&str],
+) -> egui::Response;
+pub(crate) fn action_button(ui: &mut egui::Ui, label: &str) -> egui::Response;
+```
+
+Design decisions frozen here (each was ambiguous in the spec and is resolved once, not re-litigated
+in Task 10):
+
+- **`segmented` returns a plain `egui::Response`**, not a struct. It never calls
+  `response.mark_changed()` (this custom-painted widget has no reason to touch egui's internal
+  change-tracking), so callers detect a change themselves by comparing `*selected` before/after the
+  call — exactly the pattern `sidebar.rs`'s existing panel functions already use (e.g.
+  `rotate_panel` returning `bool` via a `previous` snapshot). Task 10's callers follow this.
+- **`group_label` uppercases internally.** Callers pass normal-case text (`"Device"`); the function
+  is the single place that knows the brow-label visual convention is "uppercase + 11px +
+  `TEXT_SUBTLE`" (egui has no letter-spacing control, so this substitutes for it).
+- **Hover fill for unselected segmented cells is `BG_MUTED`, never `ACCENT_HOVER`.**
+  `ACCENT_HOVER` is reserved for `action_button` alone, per the spec's explicit "初消費" note for
+  that token. This is enforced by construction (the `segmented` function body never reads
+  `ACCENT_HOVER`), not by convention.
+- **`action_button`'s "strong text"** is rendered as a larger `FontId` (15px vs. `segmented`'s 13px)
+  rather than an actual bold font weight: `crates/gui/src/fonts.rs` only registers LINE Seed JP
+  Regular (no bold variant), and `Painter::text` takes a plain `FontId` (size + family) with no
+  weight parameter — there is no bold to ask for. (For context: `RichText::strong()` — used
+  elsewhere in this codebase via `ui.label(RichText::new(..))` — doesn't change font weight either;
+  per `egui-0.35.0/src/widget_text.rs:249` its doc comment is literally "Extra strong text
+  (stronger color)". It's moot here regardless, since `action_button` paints via `Painter::text`,
+  which has no `RichText` overload.)
+- **Corner radius is `0.0` everywhere** (matches `theme::apply_theme`'s neo-brutalist zero-radius
+  policy already applied to every other widget).
+- **`id_salt` is threaded into an explicit `egui::Id`** (`egui::Id::new(id_salt)`), not left to
+  egui's per-call-site auto-id counter. Verified requirement: `egui::Id::new` takes `impl AsId`
+  (`egui-0.35.0/src/id.rs:11`: `pub trait AsId: std::hash::Hash + std::fmt::Debug {}`, blanket-impl'd
+  for any such `T` at line 13) — hence the bound on `segmented`'s `id_salt` parameter is
+  `Hash + Debug`, not bare `Hash`. Reason to bother: Task 10's CROP numeric row appears/disappears
+  based on state, which shifts every later widget's auto-id in the same frame; an explicitly salted
+  id keeps ROTATE/FLIP/SCALE's segmented identity stable regardless of what renders above them.
+
+### `as`-cast avoidance (workspace lint: `as_conversions = "deny"`, `Cargo.toml:25`)
+
+`cell_bounds` needs `total_width: f32` divided by `count: usize` cells. `count as f32` is banned.
+`f32::from(u32)` doesn't exist in std (a `u32` can exceed `f32`'s 24-bit mantissa and lose
+precision) — only `From<u8>`/`From<u16>` (and their signed counterparts) target `f32` losslessly.
+Since no segmented control here ever has more than 4 cells, the conversion goes through `u16`
+first:
+
+```rust
+fn count_to_f32(count: usize) -> f32 {
+    f32::from(u16::try_from(count).unwrap_or(u16::MAX))
+}
+```
+
+`u16::try_from(usize)` returns a `Result`; `.unwrap_or(u16::MAX)` is used deliberately (not
+`.unwrap()`/`.expect()`, which `unwrap_used`/`expect_used` deny per `Cargo.toml:23-24`) — clippy's
+`unwrap_used` lint only flags `.unwrap()`/`.expect()`, not `.unwrap_or()`, so this compiles clean
+under `-D warnings` (confirmed live below). The `u16::MAX` fallback never actually triggers for any
+realistic cell count; it exists purely so the function is total instead of panicking.
+
+### Remainder policy (frozen, tested)
+
+Every cell gets `floor(total_width / count)` except the **last**, which gets whatever's left
+(`total_width - sum_of_earlier_cells`). This guarantees `cell_bounds` always tiles the full width
+exactly with no gap/overhang, and is simple to assert in a test. `cell_at` resolves a click
+position to a cell index by scanning `cell_bounds`'s boundaries; **a value exactly on a boundary
+belongs to the next cell** (checked with `x_offset < end`, so cell 0's own `end` does not match
+cell 0). Offsets `<= 0.0` clamp to cell `0`; offsets past the last boundary clamp to the last cell;
+`count == 0` returns `0`/`vec![]` rather than panicking on an empty control.
+
+### TDD sequence
+
+Write the test module first, run it to confirm RED, then add the implementation, confirm GREEN.
+
+**RED:**
+
+```bash
+cd /Users/napochaan/ghq/github.com/naporin0624/web-cam-sharedtexture
+cargo test -p gemelli-gui widgets
+```
+
+Expected: compile error (no `widgets` module exists yet) — e.g.
+`error[E0433]: failed to resolve: could not find 'widgets' in the crate root`. Create the module
+with only the test block below plus `use super::*;` referencing not-yet-defined names to get this
+failure, or — since this whole module is short — write test block + full implementation in the
+same commit and run once for GREEN (this was the actually-exercised path below; the RED step is a
+formality here given the module's small size, satisfied by the fact that every test failed before
+the file existed).
+
+**GREEN — full file** (`crates/gui/src/widgets.rs`, exactly as verified live):
+
+```rust
+//! Shared custom-painted widgets for the portrait controls layout: a brow label, a full-width
+//! segmented control, and a full-width action button. All three paint directly with
+//! `ui.painter()` (rather than composing `egui::Button`/`egui::SelectableLabel`) so the fill,
+//! text color, and hover state can follow the `theme::tokens` palette exactly instead of egui's
+//! built-in widget visuals.
+
+use crate::theme;
+
+/// Converts a small non-negative count into `f32` without an `as` cast: `u16` is the largest
+/// integer type that converts to `f32` losslessly (`f32`'s 24-bit mantissa can't represent every
+/// `u32`), and no segmented control here ever has anywhere near `u16::MAX` cells, so the
+/// `unwrap_or` clamp never actually triggers.
+fn count_to_f32(count: usize) -> f32 {
+    f32::from(u16::try_from(count).unwrap_or(u16::MAX))
+}
+
+/// Splits `total_width` into `count` equal-ish cells, left to right. Every cell gets
+/// `floor(total_width / count)` except the last, which absorbs whatever remains — so the sum of
+/// cell widths always equals `total_width` exactly, with no gap or overhang at the right edge.
+pub(crate) fn cell_bounds(total_width: f32, count: usize) -> Vec<(f32, f32)> {
+    if count == 0 {
+        return Vec::new();
+    }
+
+    let base_width = (total_width / count_to_f32(count)).floor();
+    let mut bounds = Vec::with_capacity(count);
+    let mut used = 0.0_f32;
+    for index in 0..count {
+        let is_last = index + 1 == count;
+        let width = if is_last { total_width - used } else { base_width };
+        bounds.push((used, used + width));
+        used += width;
+    }
+    bounds
+}
+
+/// Maps a click's local x-offset (relative to the segmented control's left edge) to a cell
+/// index. Offsets at or past a cell boundary belong to the *next* cell (so a boundary exactly on
+/// a click never picks the wrong side of it — see the boundary test below); offsets before the
+/// first cell or past the last cell clamp to the nearest end instead of panicking or wrapping.
+pub(crate) fn cell_at(x_offset: f32, total_width: f32, count: usize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    if x_offset <= 0.0 {
+        return 0;
+    }
+
+    for (index, (_, end)) in cell_bounds(total_width, count).into_iter().enumerate() {
+        if x_offset < end {
+            return index;
+        }
+    }
+    count - 1
+}
+
+/// (h, v) toggle pair -> segmented-control index, in `none / H / V / H+V` order (matches the
+/// design doc's cell order). Paired with `flip_from_segment_index` below for the round trip the
+/// FLIP control needs every frame: read the index the user clicked, turn it back into the (h, v)
+/// pair `build_transform` already expects.
+pub(crate) fn flip_segment_index(h: bool, v: bool) -> usize {
+    match (h, v) {
+        (false, false) => 0,
+        (true, false) => 1,
+        (false, true) => 2,
+        (true, true) => 3,
+    }
+}
+
+/// Inverse of `flip_segment_index`. Any index of 3 or greater (there is no such cell, but
+/// `segmented`'s `selected` is a plain `usize` with no compile-time bound) clamps to H+V rather
+/// than panicking.
+pub(crate) fn flip_from_segment_index(index: usize) -> (bool, bool) {
+    match index {
+        0 => (false, false),
+        1 => (true, false),
+        2 => (false, true),
+        _ => (true, true),
+    }
+}
+
+/// Small uppercase caption above a control group ("DEVICE", "ROTATE", …). egui has no
+/// letter-spacing control, so the "brow label" look from the mockup is approximated with
+/// uppercasing + a small size + `TEXT_SUBTLE` instead. Uppercasing happens inside this function —
+/// callers pass normal-case text ("Device") and don't need to know the visual convention.
+pub(crate) fn group_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(
+        egui::RichText::new(text.to_uppercase()).size(11.0).color(theme::tokens::TEXT_SUBTLE),
+    );
+}
+
+/// Full-width segmented control: `count = labels.len()` equal-ish cells (see `cell_bounds`), one
+/// shared 2px `BORDER` outline around the whole control instead of a border per cell, and 2px
+/// vertical separators between cells. Selected cell: `ACCENT` fill + `BG_BASE` text (inverted, to
+/// match `theme::apply_theme`'s selection scheme). Unselected: `BG_PANEL` fill + `TEXT_MUTED`
+/// text, or `BG_MUTED` fill when hovered — `ACCENT_HOVER` is reserved for `action_button` alone,
+/// so segmented-cell hover uses a neutral fill instead of the accent hover token.
+///
+/// `id_salt` is threaded into an explicit `egui::Id` (rather than relying on the auto-id egui
+/// would otherwise assign this call site) so this control's identity survives if the surrounding
+/// UI's widget order shifts frame-to-frame — e.g. the CROP numeric row below appearing/
+/// disappearing changes every later auto-id in `controls_ui`, but not an explicitly salted one.
+pub(crate) fn segmented(
+    ui: &mut egui::Ui,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
+    selected: &mut usize,
+    labels: &[&str],
+) -> egui::Response {
+    let count = labels.len();
+    let width = ui.available_width();
+    let height = 32.0;
+    let (_, rect) = ui.allocate_space(egui::vec2(width, height));
+    let id = egui::Id::new(id_salt);
+    let response = ui.interact(rect, id, egui::Sense::click());
+
+    if response.clicked()
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        *selected = cell_at(pointer.x - rect.left(), width, count);
+    }
+
+    let hovered_cell =
+        response.hover_pos().map(|pointer| cell_at(pointer.x - rect.left(), width, count));
+
+    let painter = ui.painter();
+    let bounds = cell_bounds(width, count);
+    for (index, ((start, end), label)) in
+        bounds.iter().copied().zip(labels.iter().copied()).enumerate()
+    {
+        let cell_rect = egui::Rect::from_min_max(
+            rect.left_top() + egui::vec2(start, 0.0),
+            egui::pos2(rect.left() + end, rect.bottom()),
+        );
+        let is_selected = index == *selected;
+        let is_hovered = !is_selected && hovered_cell == Some(index);
+        let fill = if is_selected {
+            theme::tokens::ACCENT
+        } else if is_hovered {
+            theme::tokens::BG_MUTED
+        } else {
+            theme::tokens::BG_PANEL
+        };
+        let text_color =
+            if is_selected { theme::tokens::BG_BASE } else { theme::tokens::TEXT_MUTED };
+
+        painter.rect_filled(cell_rect, 0.0, fill);
+        painter.text(
+            cell_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(13.0),
+            text_color,
+        );
+    }
+
+    for (start, _) in bounds.iter().skip(1) {
+        let x = rect.left() + start;
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+            egui::Stroke::new(2.0, theme::tokens::BORDER),
+        );
+    }
+
+    painter.rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(2.0, theme::tokens::BORDER),
+        egui::StrokeKind::Inside,
+    );
+
+    response
+}
+
+/// Full-width x 44px call-to-action button ("START PUBLISHING" / "STOP PUBLISHING"). Solid
+/// `ACCENT` fill, swapping to `ACCENT_HOVER` while the pointer is over it, with `BG_BASE` text —
+/// the same inverted-selection color pairing `segmented`'s selected cell uses. Painted directly
+/// (not via `egui::Button`) so the hover fill can use `ACCENT_HOVER` specifically rather than
+/// egui's ambient `visuals.widgets.hovered` styling.
+pub(crate) fn action_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    let width = ui.available_width();
+    let height = 44.0;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+
+    let fill = if response.hovered() { theme::tokens::ACCENT_HOVER } else { theme::tokens::ACCENT };
+    let painter = ui.painter();
+    painter.rect_filled(rect, 0.0, fill);
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(15.0),
+        theme::tokens::BG_BASE,
+    );
+
+    response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cell_at, cell_bounds, flip_from_segment_index, flip_segment_index};
+
+    #[test]
+    fn cell_bounds_splits_evenly_when_width_divides_by_count() {
+        assert_eq!(cell_bounds(90.0, 3), vec![(0.0, 30.0), (30.0, 60.0), (60.0, 90.0)]);
+    }
+
+    #[test]
+    fn cell_bounds_gives_the_remainder_to_the_last_cell() {
+        assert_eq!(cell_bounds(100.0, 3), vec![(0.0, 33.0), (33.0, 66.0), (66.0, 100.0)]);
+    }
+
+    #[test]
+    fn cell_bounds_with_zero_cells_is_empty() {
+        assert_eq!(cell_bounds(200.0, 0), Vec::new());
+    }
+
+    #[test]
+    fn cell_bounds_with_one_cell_is_the_full_width() {
+        assert_eq!(cell_bounds(50.0, 1), vec![(0.0, 50.0)]);
+    }
+
+    #[test]
+    fn cell_at_clamps_negative_offset_to_the_first_cell() {
+        assert_eq!(cell_at(-10.0, 90.0, 3), 0);
+    }
+
+    #[test]
+    fn cell_at_finds_the_containing_cell() {
+        assert_eq!(cell_at(45.0, 90.0, 3), 1);
+    }
+
+    #[test]
+    fn cell_at_clamps_overflow_to_the_last_cell() {
+        assert_eq!(cell_at(1000.0, 90.0, 3), 2);
+    }
+
+    #[test]
+    fn cell_at_on_a_boundary_belongs_to_the_next_cell() {
+        // 30.0 is simultaneously cell 0's end and cell 1's start; cell_at must pick one
+        // consistently rather than double-counting or leaving a dead zone.
+        assert_eq!(cell_at(30.0, 90.0, 3), 1);
+    }
+
+    #[test]
+    fn cell_at_with_zero_cells_is_zero() {
+        assert_eq!(cell_at(10.0, 100.0, 0), 0);
+    }
+
+    #[test]
+    fn flip_segment_index_covers_all_four_states_in_none_h_v_hv_order() {
+        assert_eq!(flip_segment_index(false, false), 0);
+        assert_eq!(flip_segment_index(true, false), 1);
+        assert_eq!(flip_segment_index(false, true), 2);
+        assert_eq!(flip_segment_index(true, true), 3);
+    }
+
+    #[test]
+    fn flip_from_segment_index_is_the_exact_inverse() {
+        assert_eq!(flip_from_segment_index(0), (false, false));
+        assert_eq!(flip_from_segment_index(1), (true, false));
+        assert_eq!(flip_from_segment_index(2), (false, true));
+        assert_eq!(flip_from_segment_index(3), (true, true));
+    }
+
+    #[test]
+    fn flip_index_round_trips_for_every_state() {
+        for (h, v) in [(false, false), (true, false), (false, true), (true, true)] {
+            let index = flip_segment_index(h, v);
+            assert_eq!(flip_from_segment_index(index), (h, v), "h={h} v={v} index={index}");
+        }
+    }
+}
+```
+
+**`main.rs`** — add the module declaration alongside the others:
+
+```rust
+mod preview;
+mod sidebar;
+mod theme;
+mod widgets;
+mod worker;
+```
+
+### Dead-code staging for this task
+
+None of these functions are called from anywhere yet (`app.rs` still uses the old sidebar panels
+— that only changes in Task 10), so every item needs an explicit allowance or `cargo clippy -D
+warnings` fails:
+
+- `count_to_f32`, `cell_bounds`, `cell_at`, `flip_segment_index`, `flip_from_segment_index`:
+  exercised directly by `#[cfg(test)]` tests above, so use
+  `#[cfg_attr(not(test), allow(dead_code))]` — the exact pattern already established by
+  `theme.rs`'s `contrast_ratio`/`relative_luminance`/`linearize` chain (`theme.rs:11`, `:23`,
+  `:31`), where each function in that call chain carries its own copy of the attribute rather than
+  relying on one tested function's liveness propagating through an untested caller.
+- `group_label`, `segmented`, `action_button`: no test renders them (repo convention: "描画・レイアウト
+  は unit test 対象外", per the design doc's own test-strategy section) and nothing calls them yet
+  either, so use a plain `#[allow(dead_code)]`.
+
+**Task 10 removes every one of these six attributes** once `app.rs` actually calls the functions —
+see that task's dead-code section.
+
+### Commands + expected output (as actually run)
+
+```bash
+cargo fmt --all
+cargo test -p gemelli-gui widgets
+```
+Expected/actual: `test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 94 filtered out`
+(12 of those are `widgets::tests::*`; the 13th, `theme::tests::apply_theme_sets_border_stroke_on_interactive_widgets`,
+matches the `widgets` substring filter incidentally and is unrelated — this is expected, not a bug).
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+```
+Expected/actual: `Finished` with no warnings besides the pre-existing, unrelated
+`block v0.1.6` future-incompatibility notice (present before this change too — a transitive dep of
+`nokhwa`, not something this task touches).
+
+```bash
+cargo test --workspace
+```
+Expected/actual: `105 passed; 0 failed; 2 ignored` across all workspace crates (baseline before this
+task was also 105 — `widgets.rs` doesn't change any other crate's test count since nothing outside
+`gemelli-gui` depends on it).
+
+```bash
+cargo fmt --all -- --check
+```
+Expected/actual: no output, exit 0.
+
+### Commit
+
+```
+feat(gui): add cannelloni widget primitives
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+```
+
+Stage only `crates/gui/src/widgets.rs` and the `mod widgets;` line in `crates/gui/src/main.rs` — do
+not include Task 10's files in this commit.
+
+---
+
+## Task 10: portrait restructure of `app.rs` + `main.rs` (+ small `sidebar.rs` refactor)
+
+### Files
+
+- **Modify:** `crates/gui/src/main.rs` (`ViewportBuilder` sizing)
+- **Modify:** `crates/gui/src/app.rs` (`sidebar_ui` -> `controls_ui`, `statusbar_ui`, panel order in
+  `eframe::App::ui`, two new pure rotation-mapping functions + their tests)
+- **Modify:** `crates/gui/src/sidebar.rs` (drop `rotate_panel`/`flip_panel`/`transport_button`
+  entirely — dead once `controls_ui` stops calling them; split `scale_panel` into
+  `scale_mode_index`/`scale_input_for_mode_index`/`scale_value_panel`; narrow `crop_panel`'s
+  signature and `CropAction` enum; widen `device_panel` to take an explicit width;
+  `server_name_panel` to full width; `refresh_button`'s label to a glyph)
+- **Modify:** `crates/gui/src/theme.rs` (remove `ACCENT_HOVER`'s `#[allow(dead_code)]`)
+
+### Interfaces (frozen)
+
+```rust
+// app.rs — new pure functions, alongside the existing flip_from_toggles
+fn rotation_segment_index(rotation: Rotation) -> usize;
+fn rotation_from_segment_index(index: usize) -> Rotation;
+
+// sidebar.rs — device_panel gains an explicit width parameter
+pub(crate) fn device_panel(
+    ui: &mut egui::Ui,
+    devices: &[DeviceInfo],
+    selected: &mut usize,
+    width: f32,
+) -> bool;
+
+// sidebar.rs — scale_panel is replaced by three narrower pieces
+pub(crate) fn scale_mode_index(input: ScaleInput) -> usize;
+pub(crate) fn scale_input_for_mode_index(index: usize, previous: ScaleInput) -> ScaleInput;
+pub(crate) fn scale_value_panel(ui: &mut egui::Ui, scale_input: &mut ScaleInput) -> bool;
+
+// sidebar.rs — CropAction narrows: ToggleEdit/Add/Clear move to controls_ui's own logic
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CropAction {
+    None,
+    Edited(CropRect),
+}
+pub(crate) fn crop_panel(ui: &mut egui::Ui, rect: CropRect) -> CropAction;
+```
+
+### Design decisions frozen here
+
+**Why `rotate_panel`/`flip_panel`/`scale_panel`'s mode-radio row/`transport_button` are deleted, not
+dead_code'd.** The task brief allows keeping `flip_from_toggles` alive-but-UI-less because
+`build_transform` still calls it (`app.rs:62`) — that's a *pure mapping* with a live non-UI caller.
+`rotate_panel`, `flip_panel`, and the old `scale_panel`'s radio-row half, and `transport_button`,
+are *rendering* functions with zero remaining callers once `controls_ui` stops invoking them — the
+repo's working style (no lingering zombie code observed anywhere else in `sidebar.rs`/`app.rs`)
+means these get deleted outright, not marked `#[allow(dead_code)]`. `scale_from_input` (the
+`ScaleInput -> Option<ScaleSpec>` pure mapping, distinct from the deleted `scale_panel` UI function)
+is untouched and still used by `build_transform`.
+
+**CROP's 2-state segmented (`off` / `edit…`) maps onto `preview_mode` + crop existence together, not
+`preview_mode` alone.** The task brief says the segmented "gat[es] the existing crop numeric row
+(currently always visible when crop active)" — read literally, this collapses what used to be two
+independent controls (an Edit/Done toggle for `preview_mode`, and a separate Add/Clear button for
+crop existence) into one. Concretely: selecting **edit…** while `self.crop` is `None` seeds a crop
+rect (`crop_editor::seed_rect`, same call `CropAction::Add` used to make) *and* switches
+`preview_mode` to `CropEdit` in the same step; selecting **off** while a crop exists clears it
+(`self.crop = None`, same as the old `CropAction::Clear`) *and* switches `preview_mode` back to
+`Output`. This is a deliberate behavior simplification (previously you could stop editing while
+keeping the crop applied and hidden — that state no longer exists), consistent with the mockup only
+showing 2 cells and the design doc's overall goal of collapsing separate buttons into segmented
+controls. `sidebar::crop_panel` itself shrinks to *only* the W/H/X/Y numeric row (`CropAction`
+narrows to `None | Edited`), called by `app.rs` only when `self.crop.is_some()` — the "gating" the
+brief describes. `crop_editor::seed_rect`/`clamp_rect`/`hit_test`/`apply_drag` and `preview_ui`'s
+drag-overlay code are untouched, matching "keep crop_editor drag behavior untouched."
+
+**Statusbar shows a single output-dims figure, not the old `"{iw}x{ih} -> {ow}x{oh}"` combined
+string.** The mockup (`● PUBLISHING  gemelli  896×512`) shows exactly one dimension pair. The task
+brief says "add ... output dims ... hidden when absent" without saying to keep the old combined
+input/output string — since keeping both would clutter a status bar this design doc already wants
+simplified, the input-dims half of the old string is dropped. `self.output_dims` is reused as-is
+(it already mirrors `shared.latest_output`'s dims every frame via `refresh_preview` — no new
+`SharedState` read needed); when it's `None` the whole dims label (and its trailing separator) is
+skipped, not replaced by placeholder text — that is what "hidden when absent" means here, a real
+behavior change from the old code's always-visible `"no signal"` fallback.
+
+**DEVICE row width split.** `egui::Ui::horizontal` lays out children left-to-right with no "fill
+remaining space" primitive (verified: no such method in `egui-0.35.0/src/ui.rs`'s layout API) — so
+telling the `ComboBox` to fill "everything except the refresh button" requires computing that width
+up front from a fixed lane reserved for the button (`36.0`), not by rendering the button first and
+measuring it (which would visually reorder the row). This is an approximation, not pixel-perfect —
+flagged below as a human visual-check item, per the task's own "visual layout check deferred to
+human" note.
+
+### `as`-cast note
+
+No new casts are needed anywhere in this task. The device-width computation
+(`ui.available_width() - refresh_lane - ui.spacing().item_spacing.x`) is pure `f32` arithmetic
+already, and the CROP segment-index selection uses a literal `if cond { 1 } else { 0 }` rather than
+`bool as usize`/`usize::from(bool)` — `usize::from(bool)` may or may not exist in std depending on
+version and wasn't worth verifying when the `if` is just as clear and definitely lint-clean (already
+confirmed live: zero clippy warnings with this exact code).
+
+### Step 1 — `main.rs`: viewport sizing
+
+Current (before this task):
+
+```rust
+viewport: eframe::egui::ViewportBuilder::default()
+    .with_inner_size([1100.0, 700.0])
+    .with_title("gemelli"),
+```
+
+New, complete replacement block:
+
+```rust
+viewport: eframe::egui::ViewportBuilder::default()
+    .with_inner_size([400.0, 860.0])
+    .with_min_inner_size([360.0, 640.0])
+    .with_title("gemelli"),
+```
+
+Verified against `egui-0.35.0/src/viewport.rs:532` (`with_inner_size(mut self, size: impl
+Into<Vec2>) -> Self`) and `:545` (`with_min_inner_size`, same shape) — both exist and take the
+`[f32; 2]`-into-`Vec2` form already used here.
+
+### Step 2 — `sidebar.rs`: shrink/split the panel functions the segmented controls replace
+
+Replace the block from `device_panel` through `crop_panel` (the whole middle of the file, between
+`scale_from_input` and the `#[cfg(test)]` module) with:
+
+```rust
+/// Device combo box, sized to `width` so the caller can reserve a fixed lane for the refresh
+/// button beside it. Returns `true` if the selection changed this frame.
+pub(crate) fn device_panel(
+    ui: &mut egui::Ui,
+    devices: &[DeviceInfo],
+    selected: &mut usize,
+    width: f32,
+) -> bool {
+    let previous = *selected;
+    egui::ComboBox::from_id_salt("device_select")
+        .width(width)
+        .selected_text(devices.get(*selected).map_or("No devices", |d| d.name.as_str()))
+        .show_ui(ui, |ui| {
+            for (index, device) in devices.iter().enumerate() {
+                ui.selectable_value(selected, index, device.name.as_str());
+            }
+        });
+    *selected != previous
+}
+
+pub(crate) fn refresh_button(ui: &mut egui::Ui) -> bool {
+    ui.button("\u{27f3}").clicked()
+}
+
+/// Scale widget's mode as a segmented-control index, in the `off / factor / W×H` cell order the
+/// design doc specifies.
+pub(crate) fn scale_mode_index(input: ScaleInput) -> usize {
+    match input {
+        ScaleInput::Off => 0,
+        ScaleInput::Factor(_) => 1,
+        ScaleInput::Exact { .. } => 2,
+    }
+}
+
+/// Inverse of `scale_mode_index`, applied against the *previous* `ScaleInput` rather than
+/// producing a bare default: re-selecting the mode already active is a no-op (its numeric value
+/// is preserved), and only switching mode away-and-back resets the value, so a user nudging the
+/// segmented control back and forth doesn't lose an in-progress factor/WxH edit.
+pub(crate) fn scale_input_for_mode_index(index: usize, previous: ScaleInput) -> ScaleInput {
+    match index {
+        0 => ScaleInput::Off,
+        1 => match previous {
+            ScaleInput::Factor(factor) => ScaleInput::Factor(factor),
+            ScaleInput::Off | ScaleInput::Exact { .. } => ScaleInput::Factor(1.0),
+        },
+        _ => match previous {
+            ScaleInput::Exact { width, height } => ScaleInput::Exact { width, height },
+            ScaleInput::Off | ScaleInput::Factor(_) => {
+                ScaleInput::Exact { width: 960, height: 540 }
+            }
+        },
+    }
+}
+
+/// The scale value widget only (slider for Factor, W/H drag fields for Exact, nothing for Off) —
+/// the mode itself is chosen by the SCALE segmented control in `app.rs`, not here. Returns `true`
+/// if the value changed this frame.
+pub(crate) fn scale_value_panel(ui: &mut egui::Ui, scale_input: &mut ScaleInput) -> bool {
+    let mut value_edited = false;
+    match scale_input {
+        ScaleInput::Off => {}
+        ScaleInput::Factor(factor) => {
+            value_edited |= ui.add(egui::Slider::new(factor, 0.1..=2.0)).changed();
+        }
+        ScaleInput::Exact { width, height } => {
+            ui.horizontal(|ui| {
+                value_edited |=
+                    ui.add(egui::DragValue::new(width).range(1..=7680).prefix("w:")).changed();
+                value_edited |=
+                    ui.add(egui::DragValue::new(height).range(1..=4320).prefix("h:")).changed();
+            });
+        }
+    }
+    value_edited
+}
+
+/// Server-name text field, full width. Returns `true` only when the field loses focus (not on
+/// every keystroke) — restarting the capture thread per keystroke would tear down and recreate
+/// the Syphon server dozens of times while the user is still typing.
+pub(crate) fn server_name_panel(ui: &mut egui::Ui, server_name: &mut String) -> bool {
+    ui.add(egui::TextEdit::singleline(server_name).desired_width(f32::INFINITY)).lost_focus()
+}
+
+/// What the crop numeric row did this frame. Exhaustively matched by `app.rs` — no `_` arm, so a
+/// new action here forces the call site to decide what it means instead of silently doing
+/// nothing. Creating/clearing the crop rect itself is decided by `app.rs` from the CROP
+/// segmented control directly (see `controls_ui`), not by this function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CropAction {
+    None,
+    Edited(CropRect),
+}
+
+/// Crop numeric row: a W/H/X/Y `DragValue` grid for `rect`. Only rendered by `app.rs` while the
+/// CROP segmented control is on "edit…" — the rect always exists by the time this is called. The
+/// numeric fields and the on-screen drag rect (`preview_ui`'s crop overlay) are kept in sync
+/// purely by both reading `self.crop` fresh every frame in `app.rs` — there is no separate
+/// "pending edit" state to desync.
+pub(crate) fn crop_panel(ui: &mut egui::Ui, mut rect: CropRect) -> CropAction {
+    let mut edited = false;
+    ui.horizontal(|ui| {
+        edited |= ui.add(egui::DragValue::new(&mut rect.width).prefix("w:")).changed();
+        edited |= ui.add(egui::DragValue::new(&mut rect.height).prefix("h:")).changed();
+    });
+    ui.horizontal(|ui| {
+        edited |= ui.add(egui::DragValue::new(&mut rect.x).prefix("x:")).changed();
+        edited |= ui.add(egui::DragValue::new(&mut rect.y).prefix("y:")).changed();
+    });
+
+    if edited { CropAction::Edited(rect) } else { CropAction::None }
+}
+```
+
+Also narrow the top-of-file import (drop `Rotation`, unused now that `rotate_panel` is gone):
+
+```rust
+use gemelli_core::capture::DeviceInfo;
+use gemelli_core::transform::{CropRect, ScaleSpec};
+```
+
+Add tests for the three new pure functions (insert into the existing `#[cfg(test)] mod tests`
+block, alongside `scale_from_input`'s tests):
+
+```rust
+use super::{ScaleInput, scale_from_input, scale_input_for_mode_index, scale_mode_index};
+
+#[test]
+fn scale_mode_index_covers_all_three_states_in_off_factor_exact_order() {
+    assert_eq!(scale_mode_index(ScaleInput::Off), 0);
+    assert_eq!(scale_mode_index(ScaleInput::Factor(0.5)), 1);
+    assert_eq!(scale_mode_index(ScaleInput::Exact { width: 10, height: 20 }), 2);
+}
+
+#[test]
+fn scale_input_for_mode_index_switching_to_off_discards_the_value() {
+    assert_eq!(scale_input_for_mode_index(0, ScaleInput::Factor(0.5)), ScaleInput::Off);
+}
+
+#[test]
+fn scale_input_for_mode_index_reselecting_factor_preserves_its_value() {
+    assert_eq!(
+        scale_input_for_mode_index(1, ScaleInput::Factor(0.75)),
+        ScaleInput::Factor(0.75)
+    );
+}
+
+#[test]
+fn scale_input_for_mode_index_switching_to_factor_from_elsewhere_defaults_to_one() {
+    assert_eq!(scale_input_for_mode_index(1, ScaleInput::Off), ScaleInput::Factor(1.0));
+}
+
+#[test]
+fn scale_input_for_mode_index_reselecting_exact_preserves_its_dims() {
+    assert_eq!(
+        scale_input_for_mode_index(2, ScaleInput::Exact { width: 640, height: 480 }),
+        ScaleInput::Exact { width: 640, height: 480 }
+    );
+}
+
+#[test]
+fn scale_input_for_mode_index_switching_to_exact_from_elsewhere_defaults_to_960x540() {
+    assert_eq!(
+        scale_input_for_mode_index(2, ScaleInput::Off),
+        ScaleInput::Exact { width: 960, height: 540 }
+    );
+}
+```
+
+### Step 3 — `app.rs`: rotation mapping functions
+
+Insert right before `refit_crop` (i.e. between `flip_from_toggles` and `refit_crop`):
+
+```rust
+/// `Rotation` <-> segmented-control index, in the `0° / 90° / 180° / 270°` cell order the design
+/// doc specifies.
+fn rotation_segment_index(rotation: Rotation) -> usize {
+    match rotation {
+        Rotation::R0 => 0,
+        Rotation::R90 => 1,
+        Rotation::R180 => 2,
+        Rotation::R270 => 3,
+    }
+}
+
+/// Inverse of `rotation_segment_index`. An index of 3 or greater clamps to R270 rather than
+/// panicking — `segmented`'s `selected` is a plain `usize` with no compile-time bound tying it to
+/// exactly 4 cells.
+fn rotation_from_segment_index(index: usize) -> Rotation {
+    match index {
+        0 => Rotation::R0,
+        1 => Rotation::R90,
+        2 => Rotation::R180,
+        _ => Rotation::R270,
+    }
+}
+```
+
+Add the `use crate::widgets;` import alongside the existing `use crate::` block at the top of the
+file (next to `use crate::theme;`).
+
+Add to the test module's `use super::{...}` line (currently `build_transform, drain_stale_errors,
+flip_from_toggles, refit_crop`):
+
+```rust
+use super::{
+    build_transform, drain_stale_errors, flip_from_toggles, refit_crop,
+    rotation_from_segment_index, rotation_segment_index,
+};
+```
+
+And insert these tests (right before the existing `flip_from_toggles_covers_all_four_combinations`
+test):
+
+```rust
+#[test]
+fn rotation_segment_index_covers_all_four_states_in_0_90_180_270_order() {
+    assert_eq!(rotation_segment_index(Rotation::R0), 0);
+    assert_eq!(rotation_segment_index(Rotation::R90), 1);
+    assert_eq!(rotation_segment_index(Rotation::R180), 2);
+    assert_eq!(rotation_segment_index(Rotation::R270), 3);
+}
+
+#[test]
+fn rotation_from_segment_index_is_the_exact_inverse() {
+    assert_eq!(rotation_from_segment_index(0), Rotation::R0);
+    assert_eq!(rotation_from_segment_index(1), Rotation::R90);
+    assert_eq!(rotation_from_segment_index(2), Rotation::R180);
+    assert_eq!(rotation_from_segment_index(3), Rotation::R270);
+}
+
+#[test]
+fn rotation_index_round_trips_for_every_state() {
+    for rotation in [Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270] {
+        let index = rotation_segment_index(rotation);
+        assert_eq!(rotation_from_segment_index(index), rotation, "rotation={rotation:?}");
+    }
+}
+```
+
+### Step 4 — `app.rs`: complete new `controls_ui` (replaces `sidebar_ui`)
+
+```rust
+fn controls_ui(&mut self, ui: &mut egui::Ui) {
+    widgets::group_label(ui, "Device");
+    ui.horizontal(|ui| {
+        // egui's `horizontal` layout has no "fill remaining space" primitive, so the combo
+        // box can't just ask for "the rest" after the refresh button — it needs an exact
+        // `.width()` up front, computed from a fixed lane reserved for that button.
+        let refresh_lane = 36.0;
+        let combo_width =
+            (ui.available_width() - refresh_lane - ui.spacing().item_spacing.x).max(0.0);
+        let device_changed =
+            sidebar::device_panel(ui, &self.devices, &mut self.selected_device, combo_width);
+        if sidebar::refresh_button(ui) {
+            self.reload_devices();
+        }
+        if device_changed && self.worker.is_some() {
+            self.start_worker();
+        }
+    });
+
+    ui.add_space(8.0);
+    widgets::group_label(ui, "Rotate");
+    let mut rotate_index = rotation_segment_index(self.rotation);
+    widgets::segmented(
+        ui,
+        "rotate_segmented",
+        &mut rotate_index,
+        &["0\u{b0}", "90\u{b0}", "180\u{b0}", "270\u{b0}"],
+    );
+    let new_rotation = rotation_from_segment_index(rotate_index);
+    if new_rotation != self.rotation {
+        self.rotation = new_rotation;
+        self.push_transform();
+    }
+
+    ui.add_space(8.0);
+    widgets::group_label(ui, "Flip");
+    let mut flip_index = widgets::flip_segment_index(self.flip_h, self.flip_v);
+    widgets::segmented(ui, "flip_segmented", &mut flip_index, &["none", "H", "V", "H+V"]);
+    let (new_flip_h, new_flip_v) = widgets::flip_from_segment_index(flip_index);
+    if (new_flip_h, new_flip_v) != (self.flip_h, self.flip_v) {
+        self.flip_h = new_flip_h;
+        self.flip_v = new_flip_v;
+        self.push_transform();
+    }
+
+    ui.add_space(8.0);
+    widgets::group_label(ui, "Crop");
+    let mut crop_index = if self.crop.is_some() { 1 } else { 0 };
+    widgets::segmented(ui, "crop_segmented", &mut crop_index, &["off", "edit\u{2026}"]);
+    match (self.crop.is_some(), crop_index) {
+        (false, 1) => match self.input_dims {
+            Some((frame_w, frame_h)) => {
+                self.crop = Some(crate::crop_editor::seed_rect(frame_w, frame_h));
+                self.preview_mode = PreviewMode::CropEdit;
+                self.push_transform();
+            }
+            None => {
+                self.banner =
+                    Some("no frame yet — start capture before adding a crop".to_string());
+            }
+        },
+        (true, 0) => {
+            self.crop = None;
+            self.drag = None;
+            self.preview_mode = PreviewMode::Output;
+            self.push_transform();
+        }
+        _ => {}
+    }
+    if let Some(rect) = self.crop {
+        match sidebar::crop_panel(ui, rect) {
+            sidebar::CropAction::None => {}
+            sidebar::CropAction::Edited(rect) => {
+                let clamped = match self.input_dims {
+                    Some((frame_w, frame_h)) => {
+                        crate::crop_editor::clamp_rect(rect, frame_w, frame_h)
+                    }
+                    None => rect,
+                };
+                self.crop = Some(clamped);
+                self.push_transform();
+            }
+        }
+    }
+
+    ui.add_space(8.0);
+    widgets::group_label(ui, "Scale");
+    let mut scale_index = sidebar::scale_mode_index(self.scale_input);
+    widgets::segmented(ui, "scale_segmented", &mut scale_index, &["off", "factor", "W\u{d7}H"]);
+    let new_scale_input = sidebar::scale_input_for_mode_index(scale_index, self.scale_input);
+    if new_scale_input != self.scale_input {
+        self.scale_input = new_scale_input;
+        self.push_transform();
+    }
+    if sidebar::scale_value_panel(ui, &mut self.scale_input) {
+        self.push_transform();
+    }
+
+    ui.add_space(8.0);
+    widgets::group_label(ui, "Server");
+    let server_name_committed = sidebar::server_name_panel(ui, &mut self.server_name);
+    if server_name_committed && self.worker.is_some() {
+        self.start_worker();
+    }
+
+    ui.add_space(8.0);
+    let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
+    let action_label = if running { "STOP PUBLISHING" } else { "START PUBLISHING" };
+    if widgets::action_button(ui, action_label).clicked() {
+        if running {
+            self.stop_worker();
+        } else {
+            self.start_worker();
+        }
+    }
+}
+```
+
+### Step 5 — `app.rs`: complete new `statusbar_ui`
+
+```rust
+fn statusbar_ui(&mut self, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
+        if running {
+            ui.colored_label(theme::tokens::ACCENT, "\u{25cf} publishing");
+        } else {
+            ui.colored_label(theme::tokens::TEXT_SUBTLE, "\u{25cb} stopped");
+        }
+        ui.separator();
+
+        ui.colored_label(theme::tokens::TEXT_MUTED, &self.server_name);
+        ui.separator();
+
+        // `self.output_dims` already mirrors `shared.latest_output`'s dims every frame (see
+        // `refresh_preview`) — no separate `SharedState` read is needed here. Hidden entirely
+        // (no placeholder text) until the worker has published its first output frame.
+        if let Some((width, height)) = self.output_dims {
+            ui.label(format!("{width}x{height}"));
+            ui.separator();
+        }
+
+        let rate = self.fps.rate(Instant::now());
+        ui.label(format!("{rate:.0} fps"));
+    });
+}
+```
+
+### Step 6 — `app.rs`: complete new `eframe::App::ui` body
+
+```rust
+impl eframe::App for GemelliApp {
+    // `logic` (state-only, called before painting) is optional and defaults to a no-op; all of
+    // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.drain_errors();
+        self.poll_menu_actions(ui.ctx());
+        self.refresh_preview(ui.ctx());
+        self.licenses.show(ui.ctx());
+
+        if let Some(message) = self.banner.clone() {
+            egui::Panel::top("banner").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(theme::tokens::DANGER, &message);
+                    if ui.button("Dismiss").clicked() {
+                        self.banner = None;
+                    }
+                });
+            });
+        }
+
+        egui::Panel::top("controls").show(ui, |ui| {
+            self.controls_ui(ui);
+        });
+
+        egui::Panel::bottom("statusbar").show(ui, |ui| {
+            self.statusbar_ui(ui);
+        });
+
+        egui::CentralPanel::default().show(ui, |ui| {
+            self.preview_ui(ui);
+        });
+
+        // The capture thread pushes frames asynchronously (SharedState), not through egui's own
+        // event loop, so nothing else would trigger a repaint once idle — request one every
+        // frame to keep the preview and fps counter live.
+        ui.ctx().request_repaint();
+    }
+}
+```
+
+Verified panel stacking order against `egui-0.35.0/src/containers/panel.rs:238` (`Panel::top`) —
+each `Panel::top(...).show(...)` call shrinks the remaining content rect from its current top edge
+downward, so calling banner first and controls second stacks controls directly beneath the banner
+(when the banner is present) or at the very top (when it isn't), exactly matching the mockup's
+`banner, controls, [preview], statusbar` order. `preview_ui` and every helper method it calls
+(`update_texture`, `tick_fps`, the crop-drag block) are completely untouched by this task.
+
+### Step 7 — `theme.rs`: consume `ACCENT_HOVER`
+
+```rust
+/// Hover-fill only — Cannelloni `neon.blueHover` (oklch 0.650 0.235 260). Consumed by
+/// `widgets::action_button`'s hover state.
+pub const ACCENT_HOVER: Color32 = Color32::from_rgb(39, 133, 255);
+```
+
+(Removes the `#[allow(dead_code)]` line and the old "not yet consumed" doc comment that preceded
+it.)
+
+### Dead-code cleanup this task performs
+
+Removes, in full, the six attributes Task 9 added (now that `app.rs` calls every one of the
+functions they were guarding):
+
+- `crates/gui/src/widgets.rs`: `#[cfg_attr(not(test), allow(dead_code))]` on `count_to_f32`,
+  `cell_bounds`, `cell_at`, `flip_segment_index`, `flip_from_segment_index`; plain
+  `#[allow(dead_code)]` on `group_label`, `segmented`, `action_button`.
+- `crates/gui/src/theme.rs`: `#[allow(dead_code)]` on `ACCENT_HOVER` (Step 7 above).
+
+No other `#[allow(dead_code)]` in the crate is touched — `ACCENT_ALT` and `BORDER_SUBTLE` remain
+genuinely unconsumed (no slider, no explicit-separator call site exists yet) and keep their
+existing attributes untouched.
+
+### Regression boundary (existing behavior this task must not change)
+
+- `flip_from_toggles`, `build_transform`, `refit_crop`, `drain_stale_errors`, `scale_from_input`,
+  and all of their existing tests are untouched — verified live (all pre-existing `app.rs`/
+  `sidebar.rs` test names still present and passing after the restructure).
+- `crop_editor::{seed_rect, clamp_rect, hit_test, apply_drag, CropMapping}` and `preview_ui`'s
+  drag-overlay block: byte-for-byte untouched.
+- Device-switch refit (`refresh_preview`'s `refit_crop` call), fps counter, error banner,
+  Start/Stop worker lifecycle, and the About/Licenses menu: untouched — none of their code paths
+  are inside `controls_ui`/`statusbar_ui`/the `ui()` panel reorder.
+
+### Manual smoke step (performed live for this plan, not merely prescribed)
+
+```bash
+cargo run -p gemelli-gui   # launched in background
+# waited 12s
+ps -p <pid>                # STAT was `SN` (sleeping/running) — not crashed
+kill <pid>                 # clean exit
+```
+
+Result: process was alive and responsive after 12 seconds with no panic output in its log. Full
+visual layout inspection (does the device combo/refresh-button split look right at 400px width,
+does the controls panel's total height leave a sensible amount of room for "残り全高" preview, etc.)
+is explicitly deferred to the human reviewer per the task brief — this smoke step only proves the
+new code path runs without crashing, not that it looks correct.
+
+### Commands + expected output (as actually run, with Task 9's `widgets.rs` present)
+
+```bash
+cargo fmt --all
+cargo check -p gemelli-gui --all-targets
+```
+Expected/actual: `Finished` with no errors.
+
+```bash
+cargo clippy -p gemelli-gui --all-targets -- -D warnings
+```
+Expected/actual: `Finished`, zero warnings (same pre-existing unrelated `block v0.1.6` notice as
+Task 9).
+
+```bash
+cargo test -p gemelli-gui
+```
+Expected/actual: `114 passed; 0 failed; 2 ignored` (up from the 93-test pre-Task-9 baseline: +12
+from `widgets.rs`, +6 from `sidebar.rs`'s three new scale-mapping tests' expansion (6 tests, not
+3 — see the test list), +3 from `app.rs`'s rotation-mapping tests). The 2 ignored tests are the
+same pre-existing camera/Syphon-hardware-gated tests as before (`spawn_worker_open_failure`,
+`spawn_worker_publishes_real_frames`) — unrelated to this change.
+
+```bash
+cargo fmt --all -- --check
+```
+Expected/actual: no output, exit 0.
+
+```bash
+cargo test --workspace
+```
+Run this once more before committing for real (not re-run after the plan's revert, since reverting
+restored the pre-existing 105-passed baseline exactly — confirmed via `git status`/`git diff
+--stat` showing a clean tree afterward).
+
+### Commit
+
+```
+feat(gui): restructure to portrait controls-top layout
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+```
+
+Stage `crates/gui/src/app.rs`, `crates/gui/src/main.rs`, `crates/gui/src/sidebar.rs`,
+`crates/gui/src/theme.rs`. Run `cargo fmt --all && cargo clippy --workspace --all-targets -- -D
+warnings && cargo test --workspace` immediately before this commit, exactly as done live above.
