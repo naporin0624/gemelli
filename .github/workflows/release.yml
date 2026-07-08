@@ -1,0 +1,63 @@
+# NOTE: GitHub Actions does not cascade events triggered by the default
+# GITHUB_TOKEN. release-please (in release-please.yml) publishes GitHub
+# Releases using GITHUB_TOKEN, so its "release: published" event will NOT
+# fire this workflow automatically. To auto-trigger this workflow, either:
+#   1. give the release-please-action a `token:` input backed by a
+#      Personal Access Token (or GitHub App token) instead of GITHUB_TOKEN, or
+#   2. have a maintainer re-publish the release (edit + re-save it), or
+#   3. run this workflow manually via workflow_dispatch, passing the tag.
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload artifacts for
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    runs-on: macos-15
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+
+      - name: Add universal2 targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      # gemelli-syphon links against Apple's Syphon.framework, built locally from the
+      # vendor/syphon-src submodule — see README.md "Setup" for the source of these commands.
+      - name: Build Syphon.framework
+        run: |
+          cd vendor/syphon-src
+          xcodebuild -project Syphon.xcodeproj \
+            -scheme Syphon \
+            -configuration Release \
+            -derivedDataPath build \
+            ONLY_ACTIVE_ARCH=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+          cp -R build/Build/Products/Release/Syphon.framework ../Syphon.framework
+
+      # gemelli-gui embeds LINE Seed JP via include_bytes! — see scripts/fetch-fonts.sh.
+      - name: Fetch fonts
+        run: ./scripts/fetch-fonts.sh
+
+      - name: cargo xtask dist
+        run: cargo xtask dist
+
+      - name: Upload release artifacts
+        run: gh release upload "$TAG" target/dist/*.dmg target/dist/*.tar.gz --clobber
