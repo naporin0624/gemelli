@@ -26,13 +26,39 @@ fn main() -> ExitCode {
 // set when the syphon crate is an active dependency (macOS targets), so its
 // absence on other platforms is expected and not an error.
 fn run() -> Result<(), String> {
-    let Ok(rpaths) = std::env::var("DEP_SYPHON_BRIDGE_RPATH") else {
-        return Ok(());
-    };
+    embed_windows_manifest()?;
 
-    for rel in rpaths.split(';').filter(|rel| !rel.is_empty()) {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{rel}");
+    if let Ok(rpaths) = std::env::var("DEP_SYPHON_BRIDGE_RPATH") {
+        for rel in rpaths.split(';').filter(|rel| !rel.is_empty()) {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{rel}");
+        }
     }
+
+    Ok(())
+}
+
+// On Windows/MSVC, embed an application manifest that activates ComCtl32 v6.
+// The vendored Spout2 SDK (SpoutUtils) imports COMCTL32 ordinal 345, which
+// exists only in the v6 common-controls assembly; without this the loader
+// binds the v5 comctl32.dll and gemelli-gui.exe fails to start ("ordinal 345
+// not found"). No-op on every other target.
+fn embed_windows_manifest() -> Result<(), String> {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os != "windows" || target_env != "msvc" {
+        return Ok(());
+    }
+
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map_err(|err| format!("CARGO_MANIFEST_DIR is not set: {err}"))?;
+    let manifest = std::path::Path::new(&manifest_dir).join("app.manifest");
+    let manifest_str = manifest
+        .to_str()
+        .ok_or_else(|| format!("manifest path {} is not valid UTF-8", manifest.display()))?;
+
+    println!("cargo:rerun-if-changed=app.manifest");
+    println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg=/MANIFESTINPUT:{manifest_str}");
 
     Ok(())
 }
