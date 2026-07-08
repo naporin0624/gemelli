@@ -1896,6 +1896,8 @@ dependencies = [
  "gemelli-core",
  "gemelli-syphon",
  "muda",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "vergen-gix",
 ]
