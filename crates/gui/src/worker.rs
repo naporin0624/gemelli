@@ -11,10 +11,17 @@ use gemelli_core::frame::Frame;
 use gemelli_core::transform::TransformConfig;
 
 /// Shared between the GUI thread and the capture thread.
+///
+/// `latest_output`/`latest_raw` hold `Arc<Frame>` rather than `Frame`: the GUI thread clones
+/// them out of the mutex on every repaint (`GemelliApp::refresh_preview`, up to the display's
+/// refresh rate), and a `Frame` clone deep-copies its pixel buffer. Wrapping in `Arc` makes that
+/// clone a refcount bump instead, and shrinks how long the capture thread holds each lock too
+/// (`run_capture_step` stores the same `Arc` it already built for the other field/publisher,
+/// rather than deep-cloning the frame again per store).
 pub struct SharedState {
     pub transform: ArcSwap<TransformConfig>,
-    pub latest_output: Mutex<Option<Frame>>,
-    pub latest_raw: Mutex<Option<Frame>>,
+    pub latest_output: Mutex<Option<Arc<Frame>>>,
+    pub latest_raw: Mutex<Option<Arc<Frame>>>,
     pub frames_published: AtomicU64,
 }
 
@@ -77,14 +84,14 @@ fn run_capture_step(
     publisher: &mut dyn TexturePublisher,
     shared: &SharedState,
 ) -> Result<(), WorkerError> {
-    let raw = source.next_frame()?;
-    *recover_lock(&shared.latest_raw) = Some(raw.clone());
+    let raw = Arc::new(source.next_frame()?);
+    *recover_lock(&shared.latest_raw) = Some(Arc::clone(&raw));
 
     let config = shared.transform.load();
-    let output = transform::apply(&raw, &config)?;
+    let output = Arc::new(transform::apply(&raw, &config)?);
     publisher.publish(&output)?;
 
-    *recover_lock(&shared.latest_output) = Some(output);
+    *recover_lock(&shared.latest_output) = Some(Arc::clone(&output));
     shared.frames_published.fetch_add(1, Ordering::SeqCst);
 
     Ok(())
@@ -293,8 +300,8 @@ mod run_capture_tests {
 
         run_capture(&mut source, &mut publisher, &shared, &stop, &tx);
 
-        assert_eq!(*shared.latest_raw.lock().unwrap(), Some(frame));
-        assert_eq!(*shared.latest_output.lock().unwrap(), Some(expected_output.clone()));
+        assert_eq!(shared.latest_raw.lock().unwrap().as_deref(), Some(&frame));
+        assert_eq!(shared.latest_output.lock().unwrap().as_deref(), Some(&expected_output));
         assert_eq!(publisher.published, vec![expected_output]);
         assert_eq!(shared.frames_published.load(Ordering::SeqCst), 1);
         assert!(rx.try_recv().is_err(), "no error should have been sent");
@@ -326,7 +333,7 @@ mod run_capture_tests {
         run_capture(&mut source, &mut publisher, &shared, &stop, &tx);
 
         assert_eq!(publisher.published, vec![expected_first, expected_second.clone()]);
-        assert_eq!(*shared.latest_output.lock().unwrap(), Some(expected_second));
+        assert_eq!(shared.latest_output.lock().unwrap().as_deref(), Some(&expected_second));
         assert!(rx.try_recv().is_err());
     }
 
@@ -387,7 +394,7 @@ mod run_capture_tests {
         // stored *after* a successful publish — proves the step order
         // documented on run_capture (store raw -> apply -> publish ->
         // store output).
-        assert_eq!(*shared.latest_raw.lock().unwrap(), Some(frame));
+        assert_eq!(shared.latest_raw.lock().unwrap().as_deref(), Some(&frame));
         assert_eq!(*shared.latest_output.lock().unwrap(), None);
         assert_eq!(shared.frames_published.load(Ordering::SeqCst), 0);
     }

@@ -100,6 +100,14 @@ pub struct GemelliApp {
     input_dims: Option<(u32, u32)>,
     output_dims: Option<(u32, u32)>,
     preview_dims: Option<(u32, u32)>,
+    /// `(frames_published, preview_mode, dims)` as of the last `update_texture` upload.
+    /// `refresh_preview` is called every repaint (up to display refresh rate) but the worker
+    /// only publishes a new frame at capture rate, so most repaints see an identical frame —
+    /// re-uploading it to the GPU every time is wasted work this key lets `refresh_preview`
+    /// skip. Any of the three fields changing (new frame, mode swap between Output/CropEdit, or
+    /// the frame's own dims changing) means the pixels to display are no longer the ones already
+    /// on the texture.
+    last_uploaded: Option<(u64, PreviewMode, (u32, u32))>,
 }
 
 impl GemelliApp {
@@ -137,6 +145,7 @@ impl GemelliApp {
             input_dims: None,
             output_dims: None,
             preview_dims: None,
+            last_uploaded: None,
         }
     }
 
@@ -228,10 +237,24 @@ impl GemelliApp {
         };
         match displayed {
             Some(frame) => {
-                self.preview_dims = Some((frame.width(), frame.height()));
-                self.update_texture(ctx, &frame);
+                let dims = (frame.width(), frame.height());
+                self.preview_dims = Some(dims);
+
+                // The worker publishes at capture rate, not display refresh rate, so most
+                // calls here see the exact same frame as last time — re-uploading identical
+                // pixels to the GPU on every repaint is pure waste. Re-upload only when the
+                // key (frame count, mode, dims) actually moved.
+                let published = self.shared.frames_published.load(Ordering::Relaxed);
+                let key = (published, self.preview_mode, dims);
+                if self.last_uploaded != Some(key) {
+                    self.update_texture(ctx, &frame);
+                    self.last_uploaded = Some(key);
+                }
             }
-            None => self.preview_dims = None,
+            None => {
+                self.preview_dims = None;
+                self.last_uploaded = None;
+            }
         }
 
         self.tick_fps();
