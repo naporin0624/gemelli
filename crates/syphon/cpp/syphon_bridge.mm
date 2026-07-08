@@ -3,6 +3,11 @@
 #import <IOSurface/IOSurface.h>
 #import <Syphon/Syphon.h>
 #import <Foundation/Foundation.h>
+// kCVPixelFormatType_32BGRA lives here — not pulled in transitively by
+// Foundation.h (the reference bridge imports the Cocoa.h umbrella header
+// instead, which happens to re-export it; this project only needs
+// Foundation, so it imports CoreVideo directly rather than all of Cocoa).
+#import <CoreVideo/CVPixelBuffer.h>
 
 // Real definition of the handle declared opaque in the header. ARC manages
 // the three id<...>-typed fields: `-fobjc-arc` gives this C++ struct a
