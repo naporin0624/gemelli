@@ -16,12 +16,12 @@ use license_entry::LicenseEntry;
 
 #[derive(Debug, thiserror::Error)]
 enum XtaskError {
-    #[error("failed to spawn `cargo bundle-licenses`: {0}")]
-    Spawn(std::io::Error),
-    #[error("`cargo bundle-licenses` exited with an error:\n{0}")]
-    Subprocess(String),
-    #[error("`cargo bundle-licenses` output was not valid UTF-8: {0}")]
-    Utf8(std::string::FromUtf8Error),
+    #[error("failed to spawn `{command}`: {source}")]
+    Spawn { command: String, source: std::io::Error },
+    #[error("`{command}` exited with an error:\n{stderr}")]
+    Subprocess { command: String, stderr: String },
+    #[error("`{command}` output was not valid UTF-8: {source}")]
+    Utf8 { command: String, source: std::string::FromUtf8Error },
     #[error("failed to parse JSON: {0}")]
     Json(#[from] serde_json::Error),
     #[error("I/O error at {path}: {source}")]
@@ -30,6 +30,8 @@ enum XtaskError {
         "license artifact is stale: {0} does not match freshly generated output; run `cargo xtask gen-licenses`"
     )]
     Stale(String),
+    #[error("package `{0}` not found in `cargo metadata` output")]
+    PackageNotFound(String),
 }
 
 #[derive(Parser)]
@@ -51,6 +53,8 @@ enum Commands {
         #[arg(long)]
         check: bool,
     },
+    /// Assemble a distributable gemelli.app at target/dist/gemelli.app.
+    Bundle,
 }
 
 struct Artifacts {
@@ -68,17 +72,19 @@ fn project_root() -> PathBuf {
 }
 
 fn run_cargo_bundle_licenses() -> Result<normalize::CargoBundleOutput, XtaskError> {
+    let command = "cargo bundle-licenses";
     let output = Command::new("cargo")
         .args(["bundle-licenses", "--format", "json"])
         .output()
-        .map_err(XtaskError::Spawn)?;
+        .map_err(|source| XtaskError::Spawn { command: command.to_string(), source })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(XtaskError::Subprocess(stderr));
+        return Err(XtaskError::Subprocess { command: command.to_string(), stderr });
     }
 
-    let stdout = String::from_utf8(output.stdout).map_err(XtaskError::Utf8)?;
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|source| XtaskError::Utf8 { command: command.to_string(), source })?;
     serde_json::from_str(&stdout).map_err(XtaskError::Json)
 }
 
@@ -142,6 +148,9 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Commands::GenLicenses { check } => gen_licenses(check),
+        Commands::Bundle => bundle::bundle(&project_root()).map(|app_path| {
+            println!("built {}", app_path.display());
+        }),
     };
 
     match result {

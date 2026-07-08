@@ -5,10 +5,6 @@ use std::{
 
 /// `lipo -create <inputs...> -output <output>` — combines per-architecture binaries into one
 /// universal2 binary.
-///
-/// Only exercised by this module's tests until the shell layer wires `cargo xtask bundle`/`dist`,
-/// hence `allow(dead_code)` outside `cfg(test)` on every function below.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn lipo_create_args(inputs: &[PathBuf], output: &Path) -> Vec<OsString> {
     let mut args = vec![OsString::from("-create")];
     args.extend(inputs.iter().map(|input| input.as_os_str().to_os_string()));
@@ -19,14 +15,12 @@ pub fn lipo_create_args(inputs: &[PathBuf], output: &Path) -> Vec<OsString> {
 
 /// `install_name_tool -add_rpath <rpath> <binary>` — points a binary at the framework search
 /// path appropriate to where it was placed in the distribution layout.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn add_rpath_args(rpath: &str, binary: &Path) -> Vec<OsString> {
     vec![OsString::from("-add_rpath"), OsString::from(rpath), binary.as_os_str().to_os_string()]
 }
 
 /// `cargo build --release -p <package> --target <target>` — builds one architecture slice
 /// ahead of a `lipo -create` combine step.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn cargo_build_target_args(package: &str, target: &str) -> Vec<OsString> {
     vec![
         OsString::from("build"),

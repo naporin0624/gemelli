@@ -1,9 +1,5 @@
 /// Values interpolated into the generated `Info.plist`. Every field is the raw display value —
 /// XML metacharacters are escaped by `info_plist_xml`, not by the caller.
-///
-/// Only exercised by this module's tests until the shell layer wires `cargo xtask bundle`,
-/// hence `allow(dead_code)` outside `cfg(test)`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct PlistFields<'a> {
     pub bundle_name: &'a str,
     pub display_name: &'a str,
@@ -18,14 +14,12 @@ pub struct PlistFields<'a> {
 
 /// Escapes the three XML metacharacters that are unsafe inside a `<string>` element body.
 /// `&` must be replaced first so its own escape sequence is not re-escaped.
-#[cfg_attr(not(test), allow(dead_code))]
 fn escape_xml(value: &str) -> String {
     value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Renders a macOS `Info.plist` XML document for the gemelli `.app` bundle.
 /// `NSCameraUsageDescription` is mandatory: without it macOS denies/crashes camera access.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn info_plist_xml(fields: &PlistFields) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>CFBundleName</key>\n\t<string>{bundle_name}</string>\n\t<key>CFBundleDisplayName</key>\n\t<string>{display_name}</string>\n\t<key>CFBundleIdentifier</key>\n\t<string>{identifier}</string>\n\t<key>CFBundleExecutable</key>\n\t<string>{executable}</string>\n\t<key>CFBundleIconFile</key>\n\t<string>{icon_file}</string>\n\t<key>CFBundleShortVersionString</key>\n\t<string>{short_version}</string>\n\t<key>CFBundleVersion</key>\n\t<string>{version}</string>\n\t<key>CFBundlePackageType</key>\n\t<string>APPL</string>\n\t<key>LSMinimumSystemVersion</key>\n\t<string>{min_system_version}</string>\n\t<key>NSHighResolutionCapable</key>\n\t<true/>\n\t<key>NSCameraUsageDescription</key>\n\t<string>{camera_usage_description}</string>\n</dict>\n</plist>\n",
