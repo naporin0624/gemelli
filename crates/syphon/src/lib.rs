@@ -127,4 +127,30 @@ mod tests {
         // server is torn down by `publisher`'s Drop at the end of this test.
         std::thread::sleep(std::time::Duration::from_secs(5));
     }
+
+    #[test]
+    #[ignore = "requires a real macOS GPU session; run manually with --ignored"]
+    fn publish_frame_with_unaligned_row_stride() {
+        use gemelli_core::frame::Frame;
+
+        // width * 4 = 9832 bytes/row, not a multiple of 16 — reproduces the
+        // reported Metal validation crash on a cropped, non-4-aligned width.
+        let width = 2458_u32;
+        let height = 100_u32;
+        let pixel = [0_u8, 0, 255, 255]; // solid red, BGRA
+        let len = usize::try_from(width)
+            .and_then(|w| usize::try_from(height).map(|h| w * h * 4))
+            .expect("2458 * 100 * 4 fits in usize");
+        let data = pixel.iter().copied().cycle().take(len).collect();
+        let frame = Frame::new(width, height, data).expect("valid frame");
+
+        let mut publisher =
+            SyphonPublisher::new("gemelli-smoke-test-unaligned-stride").expect("server create");
+
+        publisher.publish(&frame).expect("publish");
+
+        // Give a receiving app a moment to observe the frame before the
+        // server is torn down by `publisher`'s Drop at the end of this test.
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
 }

@@ -14,8 +14,14 @@ eframe = { workspace = true }
 egui = { workspace = true }
 thiserror = { workspace = true }
 arc-swap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 # Platform gating lives inside gemelli-syphon itself (crate-wide
 # `#![cfg(target_os = "macos")]`), not in a `[target.'cfg(...)'.dependencies]`
 # table here: release-please's Rust manifest updater cannot parse cfg()
 # target tables and fails to bump this crate's version.
 gemelli-syphon = { path = "../syphon" }
+muda = { workspace = true }
+
+[build-dependencies]
+vergen-gix = { workspace = true }

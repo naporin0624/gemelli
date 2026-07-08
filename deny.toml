@@ -1,0 +1,37 @@
+# Third-party license policy for this workspace's full Cargo dependency graph. See
+# docs/superpowers/specs/2026-07-08-distribution-prep-design.md section 5.
+#
+# Only `cargo deny check licenses` is in scope — [advisories]/[bans]/[sources] are deliberately
+# left unconfigured. Always invoke with an explicit `check licenses`; a bare `cargo deny check`
+# would also run those unconfigured checks against their own default policies.
+[licenses]
+confidence-threshold = 0.95
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    # epaint_default_fonts' expression is `(MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0`
+    # — an AND expression requires every term individually allowed, not just the OR sub-clause.
+    # OFL-1.1 also matches the LINE Seed JP appendix entry's own license.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    # mozjpeg ("IJG") / mozjpeg-sys ("IJG AND Zlib AND BSD-3-Clause"). IJG License is a
+    # permissive BSD-style license from the Independent JPEG Group.
+    "IJG",
+    # clipboard-win / error-code, pulled in transitively by egui/eframe's Windows clipboard
+    # support even though this workspace doesn't ship on Windows yet. Boost Software License,
+    # permissive.
+    "BSL-1.0",
+    # hexf-parse. Public-domain-equivalent dedication, permissive.
+    "CC0-1.0",
+    # target-lexicon, pulled in transitively by muda's Linux-only gtk build chain
+    # (muda -> gtk -> system-deps -> cfg-expr -> target-lexicon). Apache-2.0 with the LLVM
+    # exception, which only broadens the plain Apache-2.0 grant — still permissive.
+    "Apache-2.0 WITH LLVM-exception",
+]
+# gemelli-{core,cli,gui,syphon} are all `license = "MIT"` (workspace.package), already covered
+# by the allow list above — no [licenses.private] override is needed.
