@@ -1,1 +1,103 @@
 #![cfg(target_os = "macos")]
+
+mod ffi;
+
+use std::ffi::CString;
+use std::ptr::NonNull;
+
+use webcam_sharedtexture_core::frame::Frame;
+use webcam_sharedtexture_core::publish::{PublishError, TexturePublisher};
+
+/// Sender-only Syphon Metal publisher. Wraps the opaque bridge handle
+/// returned by `syphon_bridge_create`.
+pub struct SyphonPublisher {
+    handle: NonNull<ffi::SyphonBridgeHandle>,
+}
+
+// SAFETY: `SyphonBridgeHandle` owns a `SyphonMetalServer`, an `MTLDevice`,
+// and an `MTLCommandQueue`. `SyphonPublisher` is not `Clone` and exposes no
+// way to obtain a second handle to the same native object, so moving one to
+// another thread (e.g. handing it to a dedicated capture/publish thread)
+// never creates concurrent access from two threads at once. This mirrors the
+// reference bridge's own `unsafe impl Send for Sender`.
+unsafe impl Send for SyphonPublisher {}
+
+impl SyphonPublisher {
+    /// Creates a new Syphon Metal server advertised under `server_name`.
+    pub fn new(server_name: &str) -> Result<Self, PublishError> {
+        let c_name = CString::new(server_name).map_err(|err| PublishError::ServerCreate {
+            name: server_name.to_string(),
+            reason: err.to_string(),
+        })?;
+
+        // SAFETY: `c_name` is a valid, NUL-terminated C string that stays
+        // alive for the duration of this call (it is not dropped until this
+        // statement completes). `syphon_bridge_create` copies the bytes into
+        // an `NSString` before returning, so it never retains the pointer.
+        let raw = unsafe { ffi::syphon_bridge_create(c_name.as_ptr()) };
+
+        let handle = NonNull::new(raw).ok_or_else(|| PublishError::ServerCreate {
+            name: server_name.to_string(),
+            reason: "syphon_bridge_create returned a null handle".to_string(),
+        })?;
+
+        Ok(Self { handle })
+    }
+}
+
+impl TexturePublisher for SyphonPublisher {
+    fn publish(&mut self, frame: &Frame) -> Result<(), PublishError> {
+        let bytes_per_row = frame.width().checked_mul(4).ok_or_else(|| PublishError::Publish {
+            reason: format!("frame width {} overflows bytes-per-row (width * 4)", frame.width()),
+        })?;
+
+        // SAFETY: `self.handle` was created by `syphon_bridge_create` in
+        // `new` and is not destroyed until `Drop::drop` runs (which takes
+        // `&mut self`, so it cannot race with this `&mut self` call).
+        // `frame.data()` is a valid `&[u8]` of exactly `width * height * 4`
+        // bytes (a `Frame` invariant enforced by `Frame::new`), so
+        // `bytes_per_row * height` never reads past its end. The bridge only
+        // reads the buffer for the duration of this call — it copies pixels
+        // into its own `IOSurface` before returning — so no aliasing or
+        // use-after-free is possible once this call returns.
+        let ok = unsafe {
+            ffi::syphon_bridge_send_rgba(
+                self.handle.as_ptr(),
+                frame.data().as_ptr(),
+                frame.width(),
+                frame.height(),
+                bytes_per_row,
+            )
+        };
+
+        if ok {
+            Ok(())
+        } else {
+            Err(PublishError::Publish {
+                reason: "syphon_bridge_send_rgba returned false".to_string(),
+            })
+        }
+    }
+}
+
+impl Drop for SyphonPublisher {
+    fn drop(&mut self) {
+        // SAFETY: `self.handle` is the handle created in `new` and has not
+        // been destroyed yet — `drop` runs at most once per `SyphonPublisher`
+        // and `SyphonPublisher` is not `Clone`, so no other reference to it
+        // can be live concurrently.
+        unsafe { ffi::syphon_bridge_destroy(self.handle.as_ptr()) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_rejects_interior_nul() {
+        let result = SyphonPublisher::new("bad\0name");
+
+        assert!(matches!(result, Err(PublishError::ServerCreate { .. })));
+    }
+}
