@@ -333,7 +333,13 @@ impl GemelliApp {
             return;
         };
         let draw = preview::fit_rect(frame_w, frame_h, avail);
-        ui.put(draw, egui::Image::new(texture));
+        // `egui::Image::new(&TextureHandle)` defaults to `ImageFit::Exact(tex.size)`
+        // (the texture's native pixel size), ignoring the rect `ui.put` allocates it
+        // into — so a 1080p texture drawn into a smaller `draw` rect overflowed and
+        // got clipped by the panel instead of being scaled down to fit. `draw` is
+        // already the aspect-correct letterboxed size from `fit_rect`, so forcing
+        // the widget to exactly that size just makes it honor the computed layout.
+        ui.put(draw, egui::Image::new(texture).fit_to_exact_size(draw.size()));
 
         if self.preview_mode == PreviewMode::CropEdit
             && let Some(rect) = self.crop
