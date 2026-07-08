@@ -9,4 +9,5 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+nokhwa = { version = "0.10.11", features = ["input-native"] }
 thiserror = { workspace = true }
