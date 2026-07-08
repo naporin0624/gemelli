@@ -150,6 +150,69 @@ impl Drop for WorkerHandle {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn open_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, PublishError> {
+    let publisher = gemelli_syphon::SyphonPublisher::new(server_name)?;
+    Ok(Box::new(publisher))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, PublishError> {
+    Err(PublishError::ServerCreate {
+        name: server_name.to_string(),
+        reason: "Syphon/Spout publishing is not supported on this platform".to_string(),
+    })
+}
+
+/// Parameters for one capture-thread run. Changing device, fps, or server
+/// name needs a fresh `NokhwaSource`/publisher, so the GUI stops the old
+/// worker and calls `spawn_worker` again with a new spec rather than
+/// mutating a running one.
+#[cfg_attr(not(test), allow(dead_code))]
+pub struct WorkerSpec {
+    pub device_index: u32,
+    pub requested_fps: Option<u32>,
+    pub server_name: String,
+}
+
+/// Opens `NokhwaSource` and the publisher on the new thread; open
+/// failures are reported the same way as any other capture-loop error —
+/// sent on `errors`, thread ends without ever calling `run_capture`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn spawn_worker(
+    spec: WorkerSpec,
+    shared: Arc<SharedState>,
+    errors: mpsc::Sender<WorkerError>,
+) -> WorkerHandle {
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+
+    let join = std::thread::spawn(move || {
+        let mut source = match gemelli_core::capture::NokhwaSource::open(
+            spec.device_index,
+            spec.requested_fps,
+        ) {
+            Ok(source) => source,
+            Err(error) => {
+                let _ = errors.send(WorkerError::Capture(error));
+                return;
+            }
+        };
+
+        let mut publisher = match open_publisher(&spec.server_name) {
+            Ok(publisher) => publisher,
+            Err(error) => {
+                let _ = errors.send(WorkerError::Publish(error));
+                return;
+            }
+        };
+
+        run_capture(&mut source, publisher.as_mut(), &shared, &thread_stop, &errors);
+    });
+
+    WorkerHandle { stop, join: Some(join) }
+}
+
 #[cfg(test)]
 mod run_capture_tests {
     use std::collections::VecDeque;
@@ -440,5 +503,81 @@ mod handle_tests {
         let count_at_drop = shared.frames_published.load(Ordering::SeqCst);
         thread::sleep(Duration::from_millis(20));
         assert_eq!(shared.frames_published.load(Ordering::SeqCst), count_at_drop);
+    }
+}
+
+#[cfg(test)]
+mod spawn_worker_tests {
+    use std::sync::Arc;
+    use std::sync::mpsc;
+
+    use gemelli_core::transform::TransformConfig;
+
+    use super::{SharedState, WorkerSpec, spawn_worker};
+
+    #[test]
+    fn worker_spec_holds_the_given_fields() {
+        let spec = WorkerSpec {
+            device_index: 2,
+            requested_fps: Some(30),
+            server_name: "gemelli".to_string(),
+        };
+
+        assert_eq!(spec.device_index, 2);
+        assert_eq!(spec.requested_fps, Some(30));
+        assert_eq!(spec.server_name, "gemelli");
+    }
+
+    #[test]
+    #[ignore = "opens a real camera device (index 9999 is out of range on \
+                every real machine, but nokhwa still touches the OS camera \
+                subsystem to discover that, which is flaky/slow in CI); \
+                run manually with `cargo test -p gemelli-gui \
+                spawn_worker_open_failure -- --ignored`"]
+    fn spawn_worker_open_failure() {
+        let shared = Arc::new(SharedState::new(TransformConfig::default()));
+        let (tx, rx) = mpsc::channel();
+        let spec = WorkerSpec {
+            device_index: 9999,
+            requested_fps: None,
+            server_name: "gemelli-test".to_string(),
+        };
+
+        let mut handle = spawn_worker(spec, shared, tx);
+        let error = rx.recv().expect("open failure must be sent on the errors channel");
+        assert!(matches!(error, super::WorkerError::Capture(_)));
+
+        handle.stop();
+        assert!(!handle.is_running());
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore = "requires a real camera and a real macOS GPU/Syphon session; \
+                run manually with `cargo test -p gemelli-gui \
+                spawn_worker_publishes_real_frames -- --ignored`, then \
+                check a Syphon client (e.g. Syphon Recorder) sees \
+                \"gemelli-worker-smoke\" publishing"]
+    fn spawn_worker_publishes_real_frames() {
+        use std::sync::atomic::Ordering;
+        use std::thread;
+        use std::time::Duration;
+
+        let shared = Arc::new(SharedState::new(TransformConfig::default()));
+        let (tx, _rx) = mpsc::channel();
+        let spec = WorkerSpec {
+            device_index: 0,
+            requested_fps: None,
+            server_name: "gemelli-worker-smoke".to_string(),
+        };
+
+        let mut handle = spawn_worker(spec, Arc::clone(&shared), tx);
+        thread::sleep(Duration::from_secs(3));
+
+        assert!(shared.frames_published.load(Ordering::SeqCst) > 0);
+        assert!(shared.latest_output.lock().unwrap().is_some());
+
+        handle.stop();
+        assert!(!handle.is_running());
     }
 }
