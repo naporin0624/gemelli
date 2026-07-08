@@ -1,5 +1,6 @@
-//! Registers LINE Seed JP as the app's proportional/monospace font so Japanese UI labels
-//! (`sidebar.rs`, `app.rs`) render with real glyphs instead of egui's tofu boxes.
+//! Registers LINE Seed JP as the app's proportional/monospace font. The UI copy itself stays
+//! English; this font exists so Japanese characters in camera device names (e.g. "FaceTime HD
+//! カメラ") render with real glyphs instead of egui's tofu boxes.
 
 use std::sync::Arc;
 

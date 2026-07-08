@@ -55,7 +55,7 @@ pub(crate) fn device_panel(
 }
 
 pub(crate) fn refresh_button(ui: &mut egui::Ui) -> bool {
-    ui.button("再読込").clicked()
+    ui.button("Refresh").clicked()
 }
 
 /// 2x2 segmented rotation selector: `(0)(90)` / `(180)(270)`. Returns `true` if the selection
@@ -85,8 +85,8 @@ pub(crate) fn rotate_panel(ui: &mut egui::Ui, rotation: &mut Rotation) -> bool {
 pub(crate) fn flip_panel(ui: &mut egui::Ui, flip_h: &mut bool, flip_v: &mut bool) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        changed |= ui.toggle_value(flip_h, "左右").changed();
-        changed |= ui.toggle_value(flip_v, "上下").changed();
+        changed |= ui.toggle_value(flip_h, "h").changed();
+        changed |= ui.toggle_value(flip_v, "v").changed();
     });
     changed
 }
@@ -112,9 +112,9 @@ pub(crate) fn scale_panel(ui: &mut egui::Ui, scale_input: &mut ScaleInput) -> bo
     let previous_mode = mode_of(*scale_input);
     let mut mode = previous_mode;
     ui.horizontal(|ui| {
-        ui.radio_value(&mut mode, Mode::Off, "なし");
-        ui.radio_value(&mut mode, Mode::Factor, "倍率");
-        ui.radio_value(&mut mode, Mode::Exact, "サイズ指定");
+        ui.radio_value(&mut mode, Mode::Off, "Off");
+        ui.radio_value(&mut mode, Mode::Factor, "Factor");
+        ui.radio_value(&mut mode, Mode::Exact, "WxH");
     });
 
     *scale_input = match mode {
@@ -160,7 +160,7 @@ pub(crate) fn server_name_panel(ui: &mut egui::Ui, server_name: &mut String) -> 
 /// Start/Stop button. `running` is computed by the caller (`WorkerHandle::is_running`), since
 /// this module never holds a `WorkerHandle`. Returns `true` if clicked.
 pub(crate) fn transport_button(ui: &mut egui::Ui, running: bool) -> bool {
-    let label = if running { "配信停止" } else { "配信開始" };
+    let label = if running { "Stop" } else { "Start" };
     ui.button(label).clicked()
 }
 
@@ -184,18 +184,18 @@ pub(crate) fn crop_panel(ui: &mut egui::Ui, crop: Option<CropRect>, editing: boo
     let mut action = CropAction::None;
 
     ui.horizontal(|ui| {
-        let edit_label = if editing { "完了" } else { "クロップを編集" };
+        let edit_label = if editing { "Done" } else { "Edit crop" };
         if ui.button(edit_label).clicked() {
             action = CropAction::ToggleEdit;
         }
         match crop {
             Some(_) => {
-                if ui.button("クロップを解除").clicked() {
+                if ui.button("Clear crop").clicked() {
                     action = CropAction::Clear;
                 }
             }
             None => {
-                if ui.button("クロップを追加").clicked() {
+                if ui.button("Add crop").clicked() {
                     action = CropAction::Add;
                 }
             }
