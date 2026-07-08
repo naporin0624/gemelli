@@ -173,9 +173,6 @@ mod run_capture_tests {
         }
     }
 
-    // Not used until Cycle 6's publish-error test; remove this `allow` once
-    // that test lands and calls it.
-    #[allow(dead_code)]
     struct FailingPublisher;
 
     impl TexturePublisher for FailingPublisher {
@@ -287,6 +284,28 @@ mod run_capture_tests {
         let error = rx.try_recv().expect("an error must have been sent");
         assert!(matches!(error, WorkerError::Capture(CaptureError::FrameRead { .. })));
         assert_eq!(publisher.published.len(), 0);
+        assert_eq!(shared.frames_published.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn publish_error_is_sent_and_output_is_not_overwritten() {
+        let frame = Frame::new(1, 1, vec![0, 0, 0, 255]).unwrap();
+        let mut source = FakeSource::new(vec![frame.clone()]);
+        let shared = SharedState::new(TransformConfig::default());
+        let stop = AtomicBool::new(false);
+        let mut publisher = FailingPublisher;
+        let (tx, rx) = mpsc::channel::<WorkerError>();
+
+        run_capture(&mut source, &mut publisher, &shared, &stop, &tx);
+
+        let error = rx.try_recv().expect("an error must have been sent");
+        assert!(matches!(error, WorkerError::Publish(PublishError::Publish { .. })));
+        // Raw is stored before publish is attempted; output is only
+        // stored *after* a successful publish — proves the step order
+        // documented on run_capture (store raw -> apply -> publish ->
+        // store output).
+        assert_eq!(*shared.latest_raw.lock().unwrap(), Some(frame));
+        assert_eq!(*shared.latest_output.lock().unwrap(), None);
         assert_eq!(shared.frames_published.load(Ordering::SeqCst), 0);
     }
 }
