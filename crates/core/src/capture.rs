@@ -1,7 +1,7 @@
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraIndex, CameraInfo, FrameFormat, RequestedFormat,
-    RequestedFormatType, Resolution,
+    RequestedFormatType,
 };
 use nokhwa::{Camera, NokhwaError};
 use thiserror::Error;
@@ -154,13 +154,12 @@ impl NokhwaSource {
             });
         };
 
-        loop {
+        // Open the camera first (any working format) so we can enumerate its
+        // real formats, then switch to a fast MJPEG one before streaming.
+        let mut camera = loop {
             let requested = RequestedFormat::new::<RgbFormat>(format_type);
             match Camera::new(CameraIndex::Index(index), requested) {
-                Ok(mut camera) => {
-                    camera.open_stream().map_err(|error| open_failed(index, error))?;
-                    return Ok(Self { camera });
-                }
+                Ok(camera) => break camera,
                 Err(error) => {
                     let Some(next_format) = attempts.next() else {
                         return Err(open_failed(index, error));
@@ -168,7 +167,24 @@ impl NokhwaSource {
                     format_type = next_format;
                 }
             }
+        };
+
+        // Prefer a high-frame-rate MJPEG format: nokhwa's uncompressed (YUYV)
+        // decode path is ~15x slower than its MJPEG (mozjpeg) path. Best-effort
+        // — if the camera cannot enumerate or refuses the switch, keep the
+        // format it opened with rather than failing the whole open.
+        if let Ok(formats) = camera.compatible_camera_formats()
+            && let Some(best) =
+                select_mjpeg_format(&formats, requested_fps, MAX_MJPEG_WIDTH, MAX_MJPEG_HEIGHT)
+        {
+            let request = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(best));
+            if camera.set_camera_requset(request).is_err() {
+                // Camera refused the MJPEG switch; the opened format stays.
+            }
         }
+
+        camera.open_stream().map_err(|error| open_failed(index, error))?;
+        Ok(Self { camera })
     }
 }
 
@@ -187,10 +203,12 @@ impl CaptureSource for NokhwaSource {
 
 #[cfg(test)]
 mod tests {
+    use nokhwa::utils::Resolution;
+
     use super::{
         CameraFormat, CaptureError, CaptureSource, DeviceInfo, FrameFormat, MAX_MJPEG_HEIGHT,
-        MAX_MJPEG_WIDTH, Resolution, devices_from, format_candidates, frame_read_failed,
-        index_number, open_failed, query_failed, rgb_to_bgra, select_mjpeg_format, to_device_info,
+        MAX_MJPEG_WIDTH, devices_from, format_candidates, frame_read_failed, index_number,
+        open_failed, query_failed, rgb_to_bgra, select_mjpeg_format, to_device_info,
     };
     use crate::frame::Frame;
 
@@ -438,5 +456,21 @@ mod tests {
         let chosen =
             select_mjpeg_format(&formats, Some(30), MAX_MJPEG_WIDTH, MAX_MJPEG_HEIGHT).unwrap();
         assert_eq!(chosen.frame_rate(), 30);
+    }
+
+    #[test]
+    #[ignore = "requires a real camera; run manually with \
+                `cargo test -p gemelli-core opens_camera_as_mjpeg -- --ignored --nocapture`"]
+    fn opens_camera_as_mjpeg() {
+        let source = super::NokhwaSource::open(0, None).expect("camera opens");
+        let format = source.camera.camera_format();
+        println!(
+            "negotiated: {}x{} @ {}fps {:?}",
+            format.width(),
+            format.height(),
+            format.frame_rate(),
+            format.format()
+        );
+        assert_eq!(format.format(), nokhwa::utils::FrameFormat::MJPEG);
     }
 }
