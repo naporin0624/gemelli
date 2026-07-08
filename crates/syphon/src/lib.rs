@@ -100,4 +100,28 @@ mod tests {
 
         assert!(matches!(result, Err(PublishError::ServerCreate { .. })));
     }
+
+    #[test]
+    #[ignore = "requires a real macOS GPU session; run manually with --ignored"]
+    fn publish_one_solid_color_frame() {
+        use webcam_sharedtexture_core::frame::Frame;
+
+        let width = 64_u32;
+        let height = 64_u32;
+        let pixel = [0_u8, 0, 255, 255]; // solid red, BGRA
+        let len = usize::try_from(width)
+            .and_then(|w| usize::try_from(height).map(|h| w * h * 4))
+            .expect("64 * 64 * 4 fits in usize");
+        let data = pixel.iter().copied().cycle().take(len).collect();
+        let frame = Frame::new(width, height, data).expect("valid frame");
+
+        let mut publisher =
+            SyphonPublisher::new("webcam-sharedtexture-smoke-test").expect("server create");
+
+        publisher.publish(&frame).expect("publish");
+
+        // Give a receiving app a moment to observe the frame before the
+        // server is torn down by `publisher`'s Drop at the end of this test.
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
 }
