@@ -82,6 +82,50 @@ pub fn clamp_rect(rect: CropRect, frame_width: u32, frame_height: u32) -> CropRe
     CropRect { width, height, x, y }
 }
 
+/// Drag interaction state. Exhaustive-matched everywhere it's consumed —
+/// no `_` arm — so adding a sixth handle is a compile error at every call
+/// site until it's handled, not a silent no-op.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub enum DragMode {
+    Move,
+    ResizeNw,
+    ResizeNe,
+    ResizeSw,
+    ResizeSe,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub struct DragState {
+    pub mode: DragMode,
+    pub start_rect: CropRect,
+    pub start_pointer: egui::Pos2,
+}
+
+/// Given a drag delta in screen coords, produces the new (clamped)
+/// `CropRect`. Each resize arm moves only its own corner, leaving the
+/// opposite corner fixed; `Move` translates both corners equally.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn apply_drag(state: &DragState, mapping: &CropMapping, pointer: egui::Pos2) -> CropRect {
+    let delta = pointer - state.start_pointer;
+    let start_screen = mapping.to_screen(state.start_rect);
+    let new_screen = match state.mode {
+        DragMode::Move => start_screen.translate(delta),
+        DragMode::ResizeNw => egui::Rect::from_min_max(start_screen.min + delta, start_screen.max),
+        DragMode::ResizeNe => egui::Rect::from_min_max(
+            egui::pos2(start_screen.min.x, start_screen.min.y + delta.y),
+            egui::pos2(start_screen.max.x + delta.x, start_screen.max.y),
+        ),
+        DragMode::ResizeSw => egui::Rect::from_min_max(
+            egui::pos2(start_screen.min.x + delta.x, start_screen.min.y),
+            egui::pos2(start_screen.max.x, start_screen.max.y + delta.y),
+        ),
+        DragMode::ResizeSe => egui::Rect::from_min_max(start_screen.min, start_screen.max + delta),
+    };
+    mapping.to_frame(new_screen)
+}
+
 #[cfg(test)]
 mod coord_tests {
     use super::{to_frame_coord, to_screen_coord};
@@ -210,5 +254,81 @@ mod clamp_rect_tests {
     fn already_valid_rect_is_unchanged() {
         let rect = CropRect { width: 960, height: 540, x: 480, y: 270 };
         assert_eq!(clamp_rect(rect, FRAME_W, FRAME_H), rect);
+    }
+}
+
+#[cfg(test)]
+mod apply_drag_tests {
+    use gemelli_core::transform::CropRect;
+
+    use super::{CropMapping, DragMode, DragState, apply_drag};
+
+    fn fixture_mapping() -> CropMapping {
+        CropMapping {
+            frame_width: 1920,
+            frame_height: 1080,
+            draw: egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(640.0, 360.0)),
+        }
+    }
+
+    // start_rect's screen projection is (260,140)-(580,320) under
+    // fixture_mapping — see Cycle 1's to_screen test.
+    fn start_rect() -> CropRect {
+        CropRect { width: 960, height: 540, x: 480, y: 270 }
+    }
+
+    #[test]
+    fn move_translates_without_changing_size() {
+        let mapping = fixture_mapping();
+        let start_pointer = egui::pos2(420.0, 230.0); // center of the screen rect
+        let state = DragState { mode: DragMode::Move, start_rect: start_rect(), start_pointer };
+
+        let result = apply_drag(&state, &mapping, egui::pos2(435.0, 239.0)); // +15,+9 screen px
+
+        assert_eq!(result, CropRect { width: 960, height: 540, x: 525, y: 297 });
+    }
+
+    #[test]
+    fn resize_se_grows_from_the_fixed_top_left_corner() {
+        let mapping = fixture_mapping();
+        let start_pointer = egui::pos2(580.0, 320.0); // screen rect's max corner
+        let state = DragState { mode: DragMode::ResizeSe, start_rect: start_rect(), start_pointer };
+
+        let result = apply_drag(&state, &mapping, egui::pos2(610.0, 350.0)); // +30,+30 screen px
+
+        assert_eq!(result, CropRect { width: 1050, height: 630, x: 480, y: 270 });
+    }
+
+    #[test]
+    fn resize_nw_moves_the_origin_and_shrinks_from_the_fixed_bottom_right_corner() {
+        let mapping = fixture_mapping();
+        let start_pointer = egui::pos2(260.0, 140.0); // screen rect's min corner
+        let state = DragState { mode: DragMode::ResizeNw, start_rect: start_rect(), start_pointer };
+
+        let result = apply_drag(&state, &mapping, egui::pos2(290.0, 170.0)); // +30,+30 screen px
+
+        assert_eq!(result, CropRect { width: 870, height: 450, x: 570, y: 360 });
+    }
+
+    #[test]
+    fn resize_ne_moves_the_top_edge_and_grows_the_right_edge() {
+        let mapping = fixture_mapping();
+        let start_pointer = egui::pos2(580.0, 140.0); // top-right corner
+        let state = DragState { mode: DragMode::ResizeNe, start_rect: start_rect(), start_pointer };
+
+        let result = apply_drag(&state, &mapping, egui::pos2(610.0, 110.0)); // +30 right, -30 up screen px
+
+        assert_eq!(result, CropRect { width: 1050, height: 630, x: 480, y: 180 });
+    }
+
+    #[test]
+    fn resize_sw_moves_the_left_edge_and_grows_the_bottom_edge() {
+        let mapping = fixture_mapping();
+        let start_pointer = egui::pos2(260.0, 320.0); // bottom-left corner
+        let state = DragState { mode: DragMode::ResizeSw, start_rect: start_rect(), start_pointer };
+
+        let result = apply_drag(&state, &mapping, egui::pos2(230.0, 350.0)); // -30 left, +30 down screen px
+
+        assert_eq!(result, CropRect { width: 1050, height: 630, x: 390, y: 270 });
     }
 }
