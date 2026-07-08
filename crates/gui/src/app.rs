@@ -93,6 +93,7 @@ pub struct GemelliApp {
 
     preview_mode: PreviewMode,
     banner: Option<String>,
+    licenses: crate::licenses::LicensesWindow,
 
     fps: FpsMeter,
     last_frames_published: u64,
@@ -112,12 +113,6 @@ pub struct GemelliApp {
     /// `None` when `menu::build_app_menu()` failed at startup (see `GemelliApp::new`)
     /// — the app still runs, just without a menu bar.
     menu: Option<crate::menu::AppMenu>,
-    /// Set by `poll_menu_actions` on `MenuAction::OpenLicenses`. Nothing reads
-    /// it yet — the licenses window will be its reader — so the field is
-    /// write-only and needs an unconditional `#[allow(dead_code)]` to pass the
-    /// `-D warnings` clippy gate.
-    #[allow(dead_code)]
-    licenses_open: bool,
 }
 
 impl GemelliApp {
@@ -157,6 +152,7 @@ impl GemelliApp {
             drag: None,
             preview_mode: PreviewMode::Output,
             banner,
+            licenses: crate::licenses::LicensesWindow::default(),
             fps: FpsMeter::new(),
             last_frames_published: 0,
             texture: None,
@@ -165,7 +161,6 @@ impl GemelliApp {
             preview_dims: None,
             last_uploaded: None,
             menu,
-            licenses_open: false,
         }
     }
 
@@ -229,11 +224,11 @@ impl GemelliApp {
     /// Drains this frame's menu activations and applies each one. Exhaustive
     /// match over `MenuAction` — a new variant added upstream forces this match
     /// to be revisited instead of silently no-op'ing.
-    fn poll_menu_actions(&mut self) {
+    fn poll_menu_actions(&mut self, ctx: &egui::Context) {
         let Some(menu) = &self.menu else { return };
         for action in menu.poll_actions() {
             match action {
-                crate::menu::MenuAction::OpenLicenses => self.licenses_open = true,
+                crate::menu::MenuAction::OpenLicenses => self.licenses.request_open(ctx),
             }
         }
     }
@@ -502,8 +497,9 @@ impl eframe::App for GemelliApp {
     // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_errors();
-        self.poll_menu_actions();
+        self.poll_menu_actions(ui.ctx());
         self.refresh_preview(ui.ctx());
+        self.licenses.show(ui.ctx());
 
         if let Some(message) = self.banner.clone() {
             egui::Panel::top("banner").show(ui, |ui| {

@@ -4,10 +4,6 @@
 /// Which of the three sources a license entry came from. `Font`/`Native` entries are the
 /// hand-written appendix (Syphon Framework, LINE Seed JP) that `cargo xtask gen-licenses` merges
 /// in; `Library` is every Rust crate dependency `cargo-bundle-licenses` discovers.
-///
-/// Only exercised by this module's tests until the licenses window consumes it, hence
-/// `allow(dead_code)` outside `cfg(test)` (same pattern as `theme.rs`'s color tokens).
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LicenseCategory {
@@ -16,7 +12,6 @@ pub enum LicenseCategory {
     Native,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct LicenseEntry {
     pub name: String,
@@ -32,11 +27,9 @@ pub struct LicenseEntry {
 /// at runtime is malformed *content*, which `parse_licenses`'s `Result` surfaces instead of
 /// panicking (the workspace denies `unwrap_used`/`expect_used`, so this is the only option
 /// anyway).
-#[cfg_attr(not(test), allow(dead_code))]
 const EMBEDDED_LICENSES_JSON: &str = include_str!("../assets/third-party-licenses.json");
 
 /// Parses the embedded manifest. Never panics.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_licenses(json: &str) -> Result<Vec<LicenseEntry>, serde_json::Error> {
     serde_json::from_str(json)
 }
@@ -44,7 +37,6 @@ pub fn parse_licenses(json: &str) -> Result<Vec<LicenseEntry>, serde_json::Error
 /// Case-insensitive substring match on `name`, AND'd with an optional exact `category` match.
 /// `query = ""` matches every entry (the empty string is a substring of everything) — this is
 /// the window's initial "nothing typed yet" state.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn filter_entries<'a>(
     entries: &'a [LicenseEntry],
     query: &str,
@@ -56,6 +48,176 @@ pub fn filter_entries<'a>(
         .filter(|entry| entry.name.to_lowercase().contains(&query_lower))
         .filter(|entry| category.as_ref().is_none_or(|wanted| &entry.category == wanted))
         .collect()
+}
+
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
+use crate::theme;
+
+/// Display text for a possibly-absent version — font/native appendix entries have no crate
+/// version to show.
+pub(crate) fn version_display(version: &Option<String>) -> &str {
+    version.as_deref().unwrap_or("\u{2014}")
+}
+
+/// Right-aligned license badge text. Crates commonly express dual licenses in SPDX `OR` form
+/// (`"MIT OR Apache-2.0"`); normalized to the more compact `"MIT / Apache-2.0"` for the badge.
+pub(crate) fn license_badge_text(license: &str) -> String {
+    license.replace(" OR ", " / ")
+}
+
+fn category_toggle(
+    ui: &mut egui::Ui,
+    current: &mut Option<LicenseCategory>,
+    value: Option<LicenseCategory>,
+    label: &str,
+) {
+    if ui.selectable_label(*current == value, label).clicked() {
+        *current = value;
+    }
+}
+
+/// Draws one row per filtered entry. `all_entries` (not `filtered`) is what `expanded`'s indices
+/// are keyed against: `filtered` is rebuilt fresh from `filter_entries` every frame, so a row's
+/// position within it shifts as the search box/category filter change — keying `expanded` off
+/// `filtered`'s own position would silently reattach the "expanded" flag to a different entry
+/// the moment the visible set changes shape. Keying off `all_entries`'s stable index avoids
+/// that; `filtered`'s items are `&LicenseEntry` borrowed from `all_entries`, so `std::ptr::eq`
+/// recovers the original index without re-running the filter's own matching logic.
+fn render_entry_list(
+    ui: &mut egui::Ui,
+    all_entries: &[LicenseEntry],
+    filtered: &[&LicenseEntry],
+    expanded: &mut HashSet<usize>,
+) {
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for entry in filtered {
+            let Some(index) =
+                all_entries.iter().position(|candidate| std::ptr::eq(candidate, *entry))
+            else {
+                continue;
+            };
+
+            ui.horizontal(|ui| {
+                let name_clicked =
+                    ui.add(egui::Label::new(&entry.name).sense(egui::Sense::click())).clicked();
+                ui.label(version_display(&entry.version));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.colored_label(
+                        theme::tokens::TEXT_SUBTLE,
+                        license_badge_text(&entry.license),
+                    );
+                });
+
+                if name_clicked {
+                    if expanded.contains(&index) {
+                        expanded.remove(&index);
+                    } else {
+                        expanded.insert(index);
+                    }
+                }
+            });
+
+            if expanded.contains(&index) {
+                egui::Frame::NONE.fill(theme::tokens::BG_MUTED).inner_margin(8.0).show(ui, |ui| {
+                    ui.colored_label(theme::tokens::TEXT_MUTED, &entry.text);
+                    if let Some(homepage) = &entry.homepage {
+                        ui.hyperlink_to(homepage, homepage);
+                    }
+                });
+            }
+
+            ui.add(egui::Separator::default().spacing(0.0));
+        }
+    });
+}
+
+/// Uses `show_viewport_immediate` rather than a deferred viewport: a deferred viewport's callback
+/// must be `Send + Sync + 'static`, so it cannot borrow `&mut self`'s fields directly and would
+/// need `self.query`/`self.category`/`self.expanded`/`self.open` wrapped in `Arc<Mutex<_>>` just
+/// to reach them. The immediate callback runs inline on the calling thread and can borrow those
+/// fields as plain `&mut` references instead. This window draws no continuously-animating content
+/// that would need the deferred variant's independent repaint scheduling, so there is no
+/// offsetting benefit to give up in exchange.
+#[derive(Default)]
+pub struct LicensesWindow {
+    open: bool,
+    query: String,
+    category: Option<LicenseCategory>,
+    expanded: HashSet<usize>,
+    data: OnceLock<Result<Vec<LicenseEntry>, serde_json::Error>>,
+}
+
+impl LicensesWindow {
+    fn viewport_id() -> egui::ViewportId {
+        egui::ViewportId::from_hash_of("gemelli-licenses-window")
+    }
+
+    /// Called from `MenuAction::OpenLicenses` handling in `app.rs`. Opens the window on first
+    /// request; if it's already open, focuses the existing native window instead of no-op'ing —
+    /// re-clicking "Open Source Licenses…" while it's already open should bring it forward, not
+    /// silently do nothing.
+    pub fn request_open(&mut self, ctx: &egui::Context) {
+        if self.open {
+            ctx.send_viewport_cmd_to(Self::viewport_id(), egui::ViewportCommand::Focus);
+        } else {
+            self.open = true;
+        }
+    }
+
+    /// Renders the licenses viewport if open; a no-op otherwise. Called unconditionally every
+    /// frame from `GemelliApp::ui`, mirroring how every other panel in `app.rs` draws
+    /// unconditionally and gates its own visibility internally.
+    pub fn show(&mut self, ctx: &egui::Context) {
+        if !self.open {
+            return;
+        }
+
+        let entries_result = self.data.get_or_init(|| parse_licenses(EMBEDDED_LICENSES_JSON));
+        let query = &mut self.query;
+        let category = &mut self.category;
+        let expanded = &mut self.expanded;
+        let open = &mut self.open;
+
+        ctx.show_viewport_immediate(
+            Self::viewport_id(),
+            egui::ViewportBuilder::default()
+                .with_title("Open Source Licenses — gemelli")
+                .with_inner_size([640.0, 520.0]),
+            |ui, _class| {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
+                    *open = false;
+                }
+
+                egui::Panel::top("licenses_top_bar").show(ui, |ui| {
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(query);
+                        ui.add(egui::Separator::default().vertical());
+                        category_toggle(ui, category, None, "All");
+                        category_toggle(ui, category, Some(LicenseCategory::Library), "Library");
+                        category_toggle(ui, category, Some(LicenseCategory::Font), "Font");
+                        category_toggle(ui, category, Some(LicenseCategory::Native), "Native");
+                    });
+                    ui.add_space(4.0);
+                });
+
+                egui::CentralPanel::default().show(ui, |ui| match entries_result {
+                    Ok(entries) => {
+                        let filtered = filter_entries(entries, query, category.clone());
+                        render_entry_list(ui, entries, &filtered, expanded);
+                    }
+                    Err(error) => {
+                        ui.colored_label(
+                            theme::tokens::DANGER,
+                            format!("failed to load bundled licenses: {error}"),
+                        );
+                    }
+                });
+            },
+        );
+    }
 }
 
 #[cfg(test)]
@@ -152,5 +314,25 @@ mod tests {
             entries.iter().any(|e| e.name == "LINE Seed JP"),
             "committed manifest is missing the LINE Seed JP appendix entry"
         );
+    }
+
+    #[test]
+    fn version_display_shows_an_em_dash_for_a_missing_version() {
+        assert_eq!(version_display(&None), "\u{2014}");
+    }
+
+    #[test]
+    fn version_display_shows_the_version_when_present() {
+        assert_eq!(version_display(&Some("1.2.3".to_string())), "1.2.3");
+    }
+
+    #[test]
+    fn license_badge_text_leaves_a_single_license_unchanged() {
+        assert_eq!(license_badge_text("MIT"), "MIT");
+    }
+
+    #[test]
+    fn license_badge_text_normalizes_an_or_expression_to_a_slash() {
+        assert_eq!(license_badge_text("MIT OR Apache-2.0"), "MIT / Apache-2.0");
     }
 }
