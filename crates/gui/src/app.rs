@@ -15,30 +15,6 @@ use crate::theme;
 use crate::widgets;
 use crate::worker::{SharedState, WorkerError, WorkerHandle, WorkerSpec, spawn_worker};
 
-/// Outcome of evaluating a close request against the tray's quit intent — see
-/// `decide_close`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CloseDecision {
-    DoNothing,
-    Minimize,
-    InitiateQuit,
-}
-
-/// Decides what a `WindowEvent::CloseRequested` (the red-button close, per the
-/// design doc's exit-path matrix) should do, given whether the tray's "Quit"
-/// item has already been chosen this run. `wants_quit` takes priority so a
-/// tray-initiated quit still reaches `InitiateQuit` even on a frame where
-/// `close_requested` also happens to be true.
-fn decide_close(close_requested: bool, wants_quit: bool) -> CloseDecision {
-    if wants_quit {
-        CloseDecision::InitiateQuit
-    } else if close_requested {
-        CloseDecision::Minimize
-    } else {
-        CloseDecision::DoNothing
-    }
-}
-
 /// (h, v) toggle state -> `Flip`. Exhaustive over all four bool pairs — no `_` arm, so a new
 /// `Flip` variant added upstream would force this match to be revisited instead of silently
 /// falling through.
@@ -168,10 +144,6 @@ pub struct GemelliApp {
     /// in `new` (see its doc comment) — replaces muda's own global receiver so
     /// the app menu and tray menu share one channel with no event stealing.
     events_rx: mpsc::Receiver<muda::MenuEvent>,
-    /// Set once the tray's "Quit gemelli" item fires; `decide_close` checks this
-    /// before `close_requested` so a tray-initiated quit isn't downgraded to a
-    /// minimize on whatever frame the window also happens to be closing.
-    wants_quit: bool,
 }
 
 impl GemelliApp {
@@ -240,7 +212,6 @@ impl GemelliApp {
             menu,
             tray,
             events_rx,
-            wants_quit: false,
         }
     }
 
@@ -323,29 +294,35 @@ impl GemelliApp {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     }
-                    crate::tray::TrayAction::Quit => self.wants_quit = true,
+                    crate::tray::TrayAction::Quit => {
+                        // Quit immediately rather than via `ViewportCommand::Close`: that
+                        // command only takes effect on a *subsequent* frame, but while the
+                        // tray menu is up the main window is backgrounded and eframe's loop is
+                        // idle, so that frame may not run until some later event happens to
+                        // wake it — which is what made "Quit" appear to need two clicks. Stop
+                        // the worker first so the camera and Syphon server are released
+                        // cleanly, then exit the process.
+                        self.stop_worker();
+                        std::process::exit(0);
+                    }
                 }
             }
         }
     }
 
-    /// Applies `decide_close`'s verdict for this frame's close-request state.
+    /// The window close button (red ×, also Cmd+W) is *always* a minimize, never a
+    /// quit — cancel the in-flight close and minimize to the Dock instead. Quitting
+    /// is deliberately not reachable from here (see `poll_native_events`' `Quit` arm):
+    /// the only exits are the tray's "Quit gemelli" and macOS's own Cmd+Q / Dock →
+    /// Quit, both of which go through `[NSApp terminate:]` and never emit
+    /// `WindowEvent::CloseRequested`, so they bypass this entirely.
     ///
-    /// Only the red-button close ever reaches here: Cmd+Q and the Dock's "Quit"
-    /// terminate the process directly via `[NSApp terminate:]` and never emit
-    /// `WindowEvent::CloseRequested`, so they bypass this entirely and are free
-    /// to keep working with no extra handling (see the design doc's exit-path
-    /// matrix). `CancelClose` must be sent before `Minimized(true)` — otherwise
-    /// eframe would let the already-in-flight close proceed to actually
-    /// terminate the app instead of just hiding the window.
-    fn handle_close(&mut self, ctx: &egui::Context, close_requested: bool) {
-        match decide_close(close_requested, self.wants_quit) {
-            CloseDecision::DoNothing => {}
-            CloseDecision::Minimize => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-            }
-            CloseDecision::InitiateQuit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+    /// `CancelClose` must be sent before `Minimized(true)`: without it eframe lets the
+    /// already-signalled close proceed and terminates the app instead of hiding it.
+    fn handle_close(&self, ctx: &egui::Context, close_requested: bool) {
+        if close_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
     }
 
@@ -729,31 +706,11 @@ mod tests {
     use gemelli_core::transform::{CropRect, Flip, Rotation, ScaleSpec, TransformConfig};
 
     use super::{
-        CloseDecision, build_transform, decide_close, drain_stale_errors, flip_from_toggles,
-        refit_crop, rotation_from_segment_index, rotation_segment_index,
+        build_transform, drain_stale_errors, flip_from_toggles, refit_crop,
+        rotation_from_segment_index, rotation_segment_index,
     };
     use crate::sidebar::ScaleInput;
     use crate::worker::WorkerError;
-
-    #[test]
-    fn decide_close_does_nothing_when_neither_close_nor_quit_is_requested() {
-        assert_eq!(decide_close(false, false), CloseDecision::DoNothing);
-    }
-
-    #[test]
-    fn decide_close_minimizes_on_a_plain_close_request() {
-        assert_eq!(decide_close(true, false), CloseDecision::Minimize);
-    }
-
-    #[test]
-    fn decide_close_initiates_quit_when_the_tray_quit_item_fired() {
-        assert_eq!(decide_close(false, true), CloseDecision::InitiateQuit);
-    }
-
-    #[test]
-    fn decide_close_prefers_quit_over_minimize_when_both_are_set() {
-        assert_eq!(decide_close(true, true), CloseDecision::InitiateQuit);
-    }
 
     #[test]
     fn rotation_segment_index_covers_all_four_states_in_0_90_180_270_order() {

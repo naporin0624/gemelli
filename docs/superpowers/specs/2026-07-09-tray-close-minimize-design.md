@@ -23,18 +23,30 @@ explicitly chooses Quit from the tray menu, or quits via the macOS Dock / Cmd+Q.
 ## Exit-path matrix (the core correctness contract)
 
 ```
-Red (×) button ───► WindowEvent::CloseRequested ─► intercept ─► CancelClose + Minimized(true)
+Red (×) button ───► WindowEvent::CloseRequested ─► ALWAYS CancelClose + Minimized(true)
 Cmd+Q / Dock Quit ─► NSApp terminate: ───────────► process exits (never hits close_requested)
-Tray "Quit gemelli" ► wants_quit = true ─► ViewportCommand::Close ─► graceful eframe exit
+Tray "Quit gemelli" ► stop_worker() ─► std::process::exit(0)  (immediate, frame-independent)
 Tray "Show gemelli" ► Minimized(false) + Focus ─► window restored & brought to front
 ```
 
-Rationale: on winit 0.30 / eframe 0.35 (macOS), only the red-button close emits
-`WindowEvent::CloseRequested`. Cmd+Q and the Dock's "Quit" go through the standard
-`[NSApp terminate:]` path (muda's `PredefinedMenuItem::quit`) and terminate the process
-directly, bypassing the close-request flow. So intercepting `close_requested` catches the
-red button **only** — the Quit paths keep working with no extra code. This assumption is a
-verification gate (below), not a guarantee.
+Rationale (verified against winit 0.30.13 / eframe 0.35 source, macOS):
+
+- winit's `windowShouldClose:` — the red-button close and Cmd+W — queues
+  `WindowEvent::CloseRequested`. There is **no** `applicationShouldTerminate:` override in
+  winit, so Cmd+Q and the Dock's "Quit" (muda's `PredefinedMenuItem::quit` → `[NSApp
+  terminate:]`) terminate the process directly via `applicationWillTerminate:` and never
+  emit `CloseRequested`. Intercepting `close_requested` therefore catches the × / Cmd+W
+  **only**; the terminate paths keep quitting with no extra code.
+- The `close_requested` interception is **unconditional** — it always minimizes, never
+  quits. Quitting is not reachable from the close path at all, which is why a second × can
+  never "leak through" to a quit.
+- Tray "Quit" does **not** use `ViewportCommand::Close`. In eframe that command only pushes
+  a `ViewportEvent::Close` that takes effect on a *subsequent* frame (see
+  `egui-winit` `process_viewport_command`); while the tray menu is open the main window is
+  backgrounded and eframe's loop is idle, so that next frame may not run until some later
+  event wakes it — the bug that made both "Quit" and the second "×" appear to need two
+  clicks. Instead the tray "Quit" arm stops the worker (clean camera/Syphon release) and
+  calls `std::process::exit(0)`, which is immediate and independent of frame scheduling.
 
 ## Architecture
 
@@ -52,12 +64,10 @@ verification gate (below), not a guarantee.
 │   ├ poll_native_events()  drain own rx once →           │
 │   │     menu.action_for(id) | tray.action_for(id)       │
 │   │       TrayAction::Show → Minimized(false) + Focus   │
-│   │       TrayAction::Quit → wants_quit = true          │
-│   └ handle_close()  decide_close(close_requested,       │
-│         wants_quit):                                     │
-│           Minimize → CancelClose + Minimized(true)      │
-│           Quit     → send Close (let eframe exit)       │
-│           Ignore   → nothing                            │
+│   │       TrayAction::Quit → stop_worker(); exit(0)     │
+│   └ handle_close(close_requested):                       │
+│         if close_requested →                             │
+│           CancelClose + Minimized(true)  (always)        │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -92,6 +102,10 @@ Resolution: after adding `tray-icon`, run
 - If split → **drop the direct `muda` dependency** and use `tray_icon::menu::*` for the
   app menu too (update `menu.rs` imports). This guarantees a single muda / single channel.
 
+**Verified**: `tray-icon 0.24.1` and the direct `muda 0.19.3` resolve to a single muda
+(`cargo tree -p gemelli-gui -i muda` shows only `v0.19.3`), so the unified branch holds —
+no fallback needed.
+
 ## Components (new `crates/gui/src/tray.rs`)
 
 | Item | Responsibility | Testable |
@@ -102,12 +116,17 @@ Resolution: after adding `tray-icon`, run
 | `fn decode_icon(&[u8]) -> Result<DecodedIcon, TrayError>` | PNG bytes → RGBA + dims, pure | ✅ unit |
 | `AppTray::action_for(&self, id) -> Option<TrayAction>` | map fired menu id to tray action, pure | ✅ unit |
 
-New pure helper in `app.rs`:
+`app.rs` close handling is a single unconditional method (no pure branch helper needed —
+there is nothing to decide, `close_requested` always means minimize):
 
-| Item | Responsibility | Testable |
-|---|---|---|
-| `enum CloseDecision { Ignore, Minimize, Quit }` | outcome of a close evaluation | — |
-| `fn decide_close(close_requested: bool, wants_quit: bool) -> CloseDecision` | pure branch logic | ✅ unit (4 combos) |
+```rust
+fn handle_close(&self, ctx, close_requested) {
+    if close_requested {
+        ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+    }
+}
+```
 
 `AppMenu` gains `action_for(&self, id) -> Option<MenuAction>` (wrapping the existing pure
 free function) so the unified poller can offer each drained event to both menu and tray.
@@ -117,8 +136,10 @@ free function) so the unified poller can offer each drained event to both menu a
 ```rust
 tray: Option<AppTray>,                 // None if build_tray() failed at startup (app still runs)
 events_rx: mpsc::Receiver<muda::MenuEvent>,  // owned drain point (replaces global receiver)
-wants_quit: bool,                      // set by tray Quit; gates decide_close
 ```
+
+No `wants_quit` flag: the close path never quits, and the tray "Quit" arm exits the process
+directly, so there is no cross-frame quit intent to track.
 
 ## Dependencies
 
@@ -146,10 +167,13 @@ wants_quit: bool,                      // set by tray Quit; gates decide_close
 ## Testing (TDD, t-wada)
 
 Unit tests (pure, no NSApp / no event loop):
-- `decide_close`: `(false,*) → Ignore`, `(true,false) → Minimize`, `(true,true) → Quit`.
 - `decode_icon`: embedded asset decodes to 44×44, RGBA buffer length `44*44*4`.
 - `AppTray::action_for`: show id → `Show`, quit id → `Quit`, foreign id → `None`.
 - `AppMenu::action_for`: unchanged coverage, licenses id → `OpenLicenses`.
+
+`handle_close` (unconditional minimize) and the tray "Quit" `process::exit` arm depend on
+the eframe event loop / macOS window state, so they are covered by the manual verification
+gates below rather than unit tests.
 
 ## Verification gates (post-implementation, `/verify` + manual smoke on real app)
 
