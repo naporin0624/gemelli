@@ -56,8 +56,14 @@ pub mod tokens {
     /// call site — never color alone (WCAG 1.4.1).
     pub const ACCENT_PUBLISH: Color32 = Color32::from_rgb(61, 220, 132);
     /// Idle state. Paired with the "○ stopped" text label at the call site.
-    pub const ACCENT_IDLE: Color32 = Color32::from_rgb(125, 133, 144);
+    pub const ACCENT_IDLE: Color32 = Color32::from_rgb(130, 138, 149);
     pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
+    /// Selected-widget fill (combo rows, segmented-control selection, toggle-on state).
+    /// A dark, desaturated variant of `ACCENT_PUBLISH` — keeps the "publish green" identity
+    /// while giving `TEXT_PRIMARY` drawn on top (the selection stroke color) enough contrast
+    /// to read as normal text (proved by `selection_bg_meets_normal_text_contrast`).
+    /// `ACCENT_PUBLISH` itself is far too bright for that pairing (1.43:1).
+    pub const SELECTION_BG: Color32 = Color32::from_rgb(16, 90, 53);
     /// Crop-rect stroke. Drawn as a dual stroke (black outline + white
     /// core) at the `preview_ui` call site, since no single color has a
     /// provable contrast ratio against arbitrary live video content.
@@ -73,7 +79,7 @@ pub fn apply_theme(ctx: &egui::Context) {
     visuals.override_text_color = Some(tokens::TEXT_PRIMARY);
     visuals.weak_text_color = Some(tokens::TEXT_MUTED);
     visuals.hyperlink_color = tokens::ACCENT_PUBLISH;
-    visuals.selection.bg_fill = tokens::ACCENT_PUBLISH;
+    visuals.selection.bg_fill = tokens::SELECTION_BG;
     visuals.selection.stroke = egui::Stroke::new(1.0, tokens::TEXT_PRIMARY);
     ctx.set_visuals(visuals);
 }
@@ -118,6 +124,15 @@ mod tests {
         assert!(contrast_ratio(tokens::DANGER, tokens::BG_BASE) >= 4.5);
     }
 
+    /// The banner (`app.rs`'s `DANGER`-colored error label) renders on `BG_PANEL`, not
+    /// `BG_BASE` — `egui::Panel::top` inherits `visuals.panel_fill`. Retargets the contrast
+    /// proof at the surface `DANGER` actually sits on; the `BG_BASE` assertion above is kept
+    /// too since it still holds and other `DANGER` usages may sit on the window background.
+    #[test]
+    fn danger_meets_normal_text_contrast_on_bg_panel() {
+        assert!(contrast_ratio(tokens::DANGER, tokens::BG_PANEL) >= 4.5);
+    }
+
     #[test]
     fn accent_publish_meets_ui_component_contrast_on_bg_panel() {
         assert!(contrast_ratio(tokens::ACCENT_PUBLISH, tokens::BG_PANEL) >= 3.0);
@@ -125,7 +140,15 @@ mod tests {
 
     #[test]
     fn accent_idle_meets_ui_component_contrast_on_bg_panel() {
-        assert!(contrast_ratio(tokens::ACCENT_IDLE, tokens::BG_PANEL) >= 3.0);
+        // ACCENT_IDLE renders as the "○ stopped" *text* label (statusbar_ui), not a
+        // non-text UI component, so it must clear the 4.5:1 normal-text threshold, not
+        // the 3.0:1 component threshold this test's name predates.
+        assert!(contrast_ratio(tokens::ACCENT_IDLE, tokens::BG_PANEL) >= 4.5);
+    }
+
+    #[test]
+    fn selection_bg_meets_normal_text_contrast() {
+        assert!(contrast_ratio(tokens::TEXT_PRIMARY, tokens::SELECTION_BG) >= 4.5);
     }
 
     #[test]
