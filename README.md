@@ -1,6 +1,6 @@
 # gemelli
 
-A small CLI (and, later, GUI) tool that captures a webcam feed, applies rotate / flip / crop /
+A small CLI and GUI tool that captures a webcam feed, applies rotate / flip / crop /
 scale transforms, and publishes the result as a shared GPU texture — Syphon on macOS today, with
 Spout on Windows defined as a trait only (not yet implemented). Sister tool of
 [ravioli](https://github.com/naporin0624/ravioli).
@@ -45,7 +45,20 @@ Spout on Windows defined as a trait only (not yet implemented). Sister tool of
    If Gatekeeper quarantines the copied framework and Syphon servers silently fail to appear to
    clients, clear it: `xattr -dr com.apple.quarantine vendor/Syphon.framework`.
 
-4. Build the workspace:
+4. Fetch the LINE Seed JP font (required to build `gemelli-gui` — the font file is embedded
+   into the binary at compile time via `include_bytes!`, so `cargo build -p gemelli-gui` and
+   `cargo build --workspace` fail without it):
+   ```bash
+   ./scripts/fetch-fonts.sh
+   ```
+   This downloads LINE Seed JP from the official [line/seed](https://github.com/line/seed)
+   release into `vendor/fonts/` (gitignored, like the Syphon build output above). The font
+   exists so the GUI can render Japanese camera device names (e.g. built-in cameras on a
+   Japanese-locale macOS) — the UI itself is English. LINE Seed JP is licensed under the SIL
+   Open Font License 1.1; see [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES), and the full
+   license text lands at `vendor/fonts/LICENSE` alongside the font.
+
+5. Build the workspace:
    ```bash
    cargo build --workspace
    ```
@@ -80,12 +93,42 @@ gemelli 0 --crop 1280x720+320+180 --server-name my-camera
 Exit codes: `0` clean shutdown (including Ctrl+C) · `1` runtime error (printed to stderr) ·
 `2` CLI usage error (invalid/missing argument).
 
+## GUI usage
+
+```bash
+cargo run -p gemelli-gui
+```
+
+A sidebar/preview layout (see `docs/superpowers/specs/2026-07-08-gemelli-gui-design.md` for the
+full design) for adjusting transforms live while previewing the camera feed, instead of
+re-launching the CLI with new flags each time.
+
+| Control | Effect |
+|---|---|
+| Device combo + Refresh | Selects the capture device; Refresh re-queries attached cameras |
+| Rotate (0/90/180/270) | Clockwise rotation, applied after crop |
+| Flip (h / v) | Independent horizontal/vertical mirror toggles; both = `hv` |
+| Crop: Edit crop / Done | Switches the preview to the raw feed with a draggable crop rect |
+| Crop: Add crop / Clear crop | Seeds a centered half-frame crop, or removes the crop entirely |
+| Crop: W / H / X / Y fields | Numeric crop editing, synced live with the on-screen drag |
+| Scale: Off / Factor / WxH | Off (no resize), a 0.1–2.0x slider, or exact target dimensions |
+| Server name | Syphon server name; committing a change restarts the server under the new name |
+| Start / Stop | Begins/stops capture and Syphon publishing on the selected device |
+| Status bar | Input→output resolution, measured fps, and a publishing/stopped indicator |
+
+Transform order is the same as the CLI: **crop → rotate → flip → scale**. The GUI is an
+additional front end, not a replacement — `gemelli-cli` remains the headless path (e.g. for
+scripted/unattended launches), and both share the same `gemelli-core` transform and Syphon
+publish pipeline.
+
 ## Manual verification checklist
 
 The automatable parts of this checklist (build/test/clippy/fmt, `--list-devices`, a timed run
-with transforms + SIGINT, and both negative paths) are re-run as part of every release; the
-visual step requires a human at a machine with a Syphon client installed and is **not**
-automated.
+with transforms + SIGINT, a timed GUI launch, and both negative paths) are re-run as part of
+every release; the visual steps require a human at a machine with a real camera and a Syphon
+client installed and are **not** automated.
+
+### CLI
 
 - [ ] `cargo build --workspace`, `cargo test --workspace`,
       `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo fmt --all -- --check`
@@ -110,6 +153,36 @@ automated.
 - [ ] `cargo run -p gemelli-cli -- <index not in --list-devices output>` prints a clear
       "device index not found" error and exits `1`.
 
+### GUI (real camera + Syphon Recorder)
+
+- [ ] `cargo run -p gemelli-gui` launches, stays alive (no panic, no stderr noise), and shows
+      the sidebar/preview layout with the theme applied.
+- [ ] Select a real attached camera and click **Start**: the GUI preview shows the live feed,
+      and Syphon Recorder shows a server named per the sidebar's "Server name" field whose image
+      matches the GUI preview pixel-for-pixel (same content, same orientation).
+- [ ] A camera whose device name contains Japanese characters renders correctly in the device
+      combo (no tofu/placeholder glyphs — this is what the embedded LINE Seed JP font is for).
+- [ ] While publishing, change rotate, flip, scale, and crop (via drag on the preview and via
+      the numeric W/H/X/Y fields) one at a time: each change appears in **both** the GUI preview
+      and the Syphon Recorder image at the same time, with no visible lag or tearing beyond
+      normal frame latency.
+- [ ] While publishing, switch to a second attached camera in the device combo (if more than one
+      is available — otherwise note it as untested): the Syphon Recorder image switches to the
+      new camera's feed within ~1 second, without the server disappearing from the client's
+      server list.
+- [ ] While publishing, edit the server name field and commit it (click away or press Tab): the
+      old-named server disappears from Syphon Recorder's list and a new one under the new name
+      appears, still showing the live feed.
+- [ ] While publishing, physically unplug the active camera (or otherwise force it offline): the
+      GUI shows an error banner within a few seconds, the status bar switches to "○ stopped",
+      and the process does **not** panic or hang.
+- [ ] With the banner still showing, plug the camera back in, click **Refresh**, select the
+      camera, and click **Start**: publishing resumes and the Syphon client sees the server
+      reappear.
+- [ ] Close the GUI window: the process exits promptly (no hang) and the Syphon server
+      disappears from the client's list (clean publisher drop, matching the CLI's Ctrl+C
+      behavior).
+
 ## License
 
 MIT — see workspace `Cargo.toml` (`license = "MIT"`).
@@ -120,3 +193,7 @@ Syphon-Framework is distributed under a BSD-style license; the full text is repr
 [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES) and ships with the submodule at
 `vendor/syphon-src/LICENSE`. No Syphon-Framework source is copied into this repository — it is
 fetched and built locally per the Setup steps above.
+
+The GUI embeds [LINE Seed JP](https://github.com/line/seed) (SIL Open Font License 1.1),
+fetched at build time by `scripts/fetch-fonts.sh` — see
+[`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No font file is committed to this repository.
