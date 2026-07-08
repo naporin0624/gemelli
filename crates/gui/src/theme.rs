@@ -59,11 +59,8 @@ pub mod tokens {
     pub const ACCENT_IDLE: Color32 = Color32::from_rgb(125, 133, 144);
     pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
     /// Crop-rect stroke. Drawn as a dual stroke (black outline + white
-    /// core) at the crop_editor.rs call site, since no single color has a
-    /// provable contrast ratio against arbitrary live video content. Not
-    /// wired into production code until Task 7, and not exercised by a
-    /// contrast test, so it needs its own `allow`.
-    #[allow(dead_code)]
+    /// core) at the `preview_ui` call site, since no single color has a
+    /// provable contrast ratio against arbitrary live video content.
     pub const CROP_OVERLAY: Color32 = Color32::WHITE;
 }
 

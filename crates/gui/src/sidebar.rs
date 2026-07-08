@@ -2,7 +2,7 @@
 //! `SharedState` or `WorkerHandle` directly; `app.rs` owns all side effects.
 
 use gemelli_core::capture::DeviceInfo;
-use gemelli_core::transform::{Rotation, ScaleSpec};
+use gemelli_core::transform::{CropRect, Rotation, ScaleSpec};
 
 const SCALE_FACTOR_MIN: f64 = 0.1;
 const SCALE_FACTOR_MAX: f64 = 2.0;
@@ -162,6 +162,64 @@ pub(crate) fn server_name_panel(ui: &mut egui::Ui, server_name: &mut String) -> 
 pub(crate) fn transport_button(ui: &mut egui::Ui, running: bool) -> bool {
     let label = if running { "Stop" } else { "Start" };
     ui.button(label).clicked()
+}
+
+/// What the crop panel's buttons/fields did this frame. Exhaustively matched by `app.rs` — no
+/// `_` arm, so a new action here forces the call site to decide what it means instead of
+/// silently doing nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CropAction {
+    None,
+    ToggleEdit,
+    Add,
+    Clear,
+    Edited(CropRect),
+}
+
+/// Crop controls: Edit/Done toggle, Add/Clear crop, and (when a crop exists) a W/H/X/Y numeric
+/// row. The numeric fields and the on-screen drag rect (Task 7's `preview_ui` addition) are kept
+/// in sync purely by both reading `self.crop` fresh every frame in `app.rs` — there is no
+/// separate "pending edit" state to desync.
+pub(crate) fn crop_panel(ui: &mut egui::Ui, crop: Option<CropRect>, editing: bool) -> CropAction {
+    let mut action = CropAction::None;
+
+    ui.horizontal(|ui| {
+        let edit_label = if editing { "Done" } else { "Edit crop" };
+        if ui.button(edit_label).clicked() {
+            action = CropAction::ToggleEdit;
+        }
+        match crop {
+            Some(_) => {
+                if ui.button("Clear crop").clicked() {
+                    action = CropAction::Clear;
+                }
+            }
+            None => {
+                if ui.button("Add crop").clicked() {
+                    action = CropAction::Add;
+                }
+            }
+        }
+    });
+
+    let Some(mut rect) = crop else {
+        return action;
+    };
+
+    let mut edited = false;
+    ui.horizontal(|ui| {
+        edited |= ui.add(egui::DragValue::new(&mut rect.width).prefix("w:")).changed();
+        edited |= ui.add(egui::DragValue::new(&mut rect.height).prefix("h:")).changed();
+    });
+    ui.horizontal(|ui| {
+        edited |= ui.add(egui::DragValue::new(&mut rect.x).prefix("x:")).changed();
+        edited |= ui.add(egui::DragValue::new(&mut rect.y).prefix("y:")).changed();
+    });
+    if edited {
+        action = CropAction::Edited(rect);
+    }
+
+    action
 }
 
 #[cfg(test)]

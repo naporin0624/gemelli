@@ -13,13 +13,11 @@ use gemelli_core::transform::CropRect;
 /// either (`From<u32> for f32` doesn't exist — only `u8`/`u16` do); frame
 /// dimensions never approach 2^24 px, so the precision loss the cast can
 /// introduce above that threshold is immaterial here.
-#[cfg_attr(not(test), allow(dead_code))]
 #[allow(clippy::as_conversions)]
 fn to_frame_coord(v: f32) -> u32 {
     v.round().clamp(0.0, u32::MAX as f32) as u32
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[allow(clippy::as_conversions)]
 fn to_screen_coord(v: u32) -> f32 {
     v as f32
@@ -27,7 +25,6 @@ fn to_screen_coord(v: u32) -> f32 {
 
 /// Maps a `CropRect` (frame pixel coords) into the preview draw rect
 /// (screen coords) and back.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct CropMapping {
     pub frame_width: u32,
     pub frame_height: u32,
@@ -42,7 +39,6 @@ impl CropMapping {
         )
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn to_screen(&self, rect: CropRect) -> egui::Rect {
         let (scale_x, scale_y) = self.scale_factors();
         let min = egui::pos2(
@@ -56,7 +52,6 @@ impl CropMapping {
         egui::Rect::from_min_size(min, size)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn to_frame(&self, rect: egui::Rect) -> CropRect {
         let (scale_x, scale_y) = self.scale_factors();
         let x = to_frame_coord((rect.min.x - self.draw.min.x) / scale_x);
@@ -73,7 +68,6 @@ const MIN_CROP_SIDE: u32 = 16;
 /// px, fully inside `[0, frame_width) x [0, frame_height)`. Width/height
 /// are bounded first so the position clamp's `frame_width - width`
 /// subtraction can never underflow.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn clamp_rect(rect: CropRect, frame_width: u32, frame_height: u32) -> CropRect {
     let width = rect.width.clamp(MIN_CROP_SIDE.min(frame_width), frame_width);
     let height = rect.height.clamp(MIN_CROP_SIDE.min(frame_height), frame_height);
@@ -86,7 +80,6 @@ pub fn clamp_rect(rect: CropRect, frame_width: u32, frame_height: u32) -> CropRe
 /// no `_` arm — so adding a sixth handle is a compile error at every call
 /// site until it's handled, not a silent no-op.
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub enum DragMode {
     Move,
     ResizeNw,
@@ -96,7 +89,6 @@ pub enum DragMode {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct DragState {
     pub mode: DragMode,
     pub start_rect: CropRect,
@@ -106,7 +98,6 @@ pub struct DragState {
 /// Given a drag delta in screen coords, produces the new (clamped)
 /// `CropRect`. Each resize arm moves only its own corner, leaving the
 /// opposite corner fixed; `Move` translates both corners equally.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn apply_drag(state: &DragState, mapping: &CropMapping, pointer: egui::Pos2) -> CropRect {
     let delta = pointer - state.start_pointer;
     let start_screen = mapping.to_screen(state.start_rect);
@@ -139,7 +130,6 @@ fn hits_corner(pointer: egui::Pos2, corner: egui::Pos2) -> bool {
 /// are checked before the move-area fallback, so a point inside both a
 /// corner's hit box and the rect's interior always resolves to the
 /// corner.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn hit_test(rect_screen: egui::Rect, pointer: egui::Pos2) -> Option<DragMode> {
     let corners = [
         (rect_screen.min, DragMode::ResizeNw),
@@ -156,6 +146,20 @@ pub fn hit_test(rect_screen: egui::Rect, pointer: egui::Pos2) -> Option<DragMode
         return Some(DragMode::Move);
     }
     None
+}
+
+/// Seeds a centered crop rect at half the frame's width/height — used when the sidebar's "Add
+/// crop" button is clicked with `crop == None`. Delegates the min-size/bounds invariant to
+/// `clamp_rect` (Task 5) instead of re-deriving it here, since a half-frame rect for any frame
+/// at or above typical webcam resolutions already satisfies it and degenerate tiny frames are
+/// exactly what `clamp_rect` exists to handle.
+pub fn seed_rect(frame_width: u32, frame_height: u32) -> CropRect {
+    let half_width = frame_width / 2;
+    let half_height = frame_height / 2;
+    let x = (frame_width - half_width) / 2;
+    let y = (frame_height - half_height) / 2;
+    let seeded = CropRect { width: half_width, height: half_height, x, y };
+    clamp_rect(seeded, frame_width, frame_height)
 }
 
 #[cfg(test)]
@@ -413,5 +417,36 @@ mod hit_test_tests {
     fn point_outside_the_rect_and_every_handle_is_none() {
         let rect = rect_screen();
         assert_eq!(hit_test(rect, egui::pos2(1000.0, 1000.0)), None);
+    }
+}
+
+#[cfg(test)]
+mod seed_rect_tests {
+    use gemelli_core::transform::CropRect;
+
+    use super::seed_rect;
+
+    #[test]
+    fn seed_rect_centers_a_half_size_rect_in_a_1080p_frame() {
+        let rect = seed_rect(1920, 1080);
+
+        assert_eq!(rect, CropRect { width: 960, height: 540, x: 480, y: 270 });
+    }
+
+    #[test]
+    fn seed_rect_centers_a_half_size_rect_in_a_480p_frame() {
+        let rect = seed_rect(640, 480);
+
+        assert_eq!(rect, CropRect { width: 320, height: 240, x: 160, y: 120 });
+    }
+
+    #[test]
+    fn seed_rect_handles_odd_dimensions_via_integer_division() {
+        let rect = seed_rect(101, 101);
+
+        assert_eq!(rect, CropRect { width: 50, height: 50, x: 25, y: 25 });
+        // Sanity: still fully inside the frame.
+        assert!(rect.x + rect.width <= 101);
+        assert!(rect.y + rect.height <= 101);
     }
 }

@@ -50,10 +50,6 @@ fn build_transform(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
     Output,
-    // Constructed by Task 7's crop-editor toggle; matched exhaustively in `refresh_preview`
-    // and `preview_ui` already so those call sites need no changes once it lands. Not
-    // exercised by any test yet either, so this needs its own unconditional `allow`.
-    #[allow(dead_code)]
     CropEdit,
 }
 
@@ -73,6 +69,7 @@ pub struct GemelliApp {
     flip_v: bool,
     scale_input: ScaleInput,
     crop: Option<CropRect>,
+    drag: Option<crate::crop_editor::DragState>,
 
     preview_mode: PreviewMode,
     banner: Option<String>,
@@ -110,6 +107,7 @@ impl GemelliApp {
             flip_v: false,
             scale_input: ScaleInput::default(),
             crop: None,
+            drag: None,
             preview_mode: PreviewMode::Output,
             banner,
             fps: FpsMeter::new(),
@@ -239,8 +237,44 @@ impl GemelliApp {
             self.push_transform();
         }
 
-        // Crop controls are inserted here by Task 7, between Flip and Scale (matches the
-        // UI仕様 ASCII layout).
+        ui.add_space(8.0);
+        ui.heading("Crop");
+        let crop_action =
+            crate::sidebar::crop_panel(ui, self.crop, self.preview_mode == PreviewMode::CropEdit);
+        match crop_action {
+            crate::sidebar::CropAction::None => {}
+            crate::sidebar::CropAction::ToggleEdit => {
+                self.preview_mode = match self.preview_mode {
+                    PreviewMode::Output => PreviewMode::CropEdit,
+                    PreviewMode::CropEdit => PreviewMode::Output,
+                };
+            }
+            crate::sidebar::CropAction::Add => match self.input_dims {
+                Some((frame_w, frame_h)) => {
+                    self.crop = Some(crate::crop_editor::seed_rect(frame_w, frame_h));
+                    self.push_transform();
+                }
+                None => {
+                    self.banner =
+                        Some("no frame yet — start capture before adding a crop".to_string());
+                }
+            },
+            crate::sidebar::CropAction::Clear => {
+                self.crop = None;
+                self.drag = None;
+                self.push_transform();
+            }
+            crate::sidebar::CropAction::Edited(rect) => {
+                let clamped = match self.input_dims {
+                    Some((frame_w, frame_h)) => {
+                        crate::crop_editor::clamp_rect(rect, frame_w, frame_h)
+                    }
+                    None => rect,
+                };
+                self.crop = Some(clamped);
+                self.push_transform();
+            }
+        }
 
         ui.add_space(8.0);
         ui.heading("Scale");
@@ -300,8 +334,59 @@ impl GemelliApp {
         let draw = preview::fit_rect(frame_w, frame_h, avail);
         ui.put(draw, egui::Image::new(texture));
 
-        // Crop overlay + drag interaction are inserted here by Task 7 (only drawn/wired when
-        // preview_mode == CropEdit).
+        if self.preview_mode == PreviewMode::CropEdit
+            && let Some(rect) = self.crop
+        {
+            let mapping = crate::crop_editor::CropMapping {
+                frame_width: frame_w,
+                frame_height: frame_h,
+                draw,
+            };
+            let rect_screen = mapping.to_screen(rect);
+
+            // Dual-stroke overlay (contract token note): a wider black halo painted first,
+            // then a thinner CROP_OVERLAY (white) line on the same edge, so the rect reads
+            // against both bright and dark video content.
+            let painter = ui.painter_at(draw);
+            painter.rect_stroke(
+                rect_screen,
+                0.0,
+                egui::Stroke::new(3.0, egui::Color32::BLACK),
+                egui::StrokeKind::Middle,
+            );
+            painter.rect_stroke(
+                rect_screen,
+                0.0,
+                egui::Stroke::new(1.0, theme::tokens::CROP_OVERLAY),
+                egui::StrokeKind::Middle,
+            );
+
+            let response =
+                ui.interact(draw, ui.id().with("crop_overlay"), egui::Sense::click_and_drag());
+
+            if response.drag_started()
+                && let Some(pointer) = response.interact_pointer_pos()
+                && let Some(mode) = crate::crop_editor::hit_test(rect_screen, pointer)
+            {
+                self.drag = Some(crate::crop_editor::DragState {
+                    mode,
+                    start_rect: rect,
+                    start_pointer: pointer,
+                });
+            }
+
+            if response.dragged()
+                && let (Some(drag), Some(pointer)) = (&self.drag, response.interact_pointer_pos())
+            {
+                let updated = crate::crop_editor::apply_drag(drag, &mapping, pointer);
+                self.crop = Some(updated);
+                self.push_transform();
+            }
+
+            if response.drag_stopped() {
+                self.drag = None;
+            }
+        }
     }
 }
 
