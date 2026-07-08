@@ -108,12 +108,31 @@ pub struct GemelliApp {
     /// the frame's own dims changing) means the pixels to display are no longer the ones already
     /// on the texture.
     last_uploaded: Option<(u64, PreviewMode, (u32, u32))>,
+
+    /// `None` when `menu::build_app_menu()` failed at startup (see `GemelliApp::new`)
+    /// — the app still runs, just without a menu bar.
+    menu: Option<crate::menu::AppMenu>,
+    /// Set by `poll_menu_actions` on `MenuAction::OpenLicenses`. Write-only in this
+    /// task — the licenses viewport (a later task) reads it to decide whether to
+    /// show/focus its window. `#[allow(dead_code)]` is required in the meantime
+    /// (see verification log: this field is unread in both test and non-test
+    /// builds until that task lands).
+    #[allow(dead_code)]
+    licenses_open: bool,
 }
 
 impl GemelliApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply_theme(&cc.egui_ctx);
         crate::fonts::install_fonts(&cc.egui_ctx);
+
+        let menu = match crate::menu::build_app_menu() {
+            Ok(menu) => Some(menu),
+            Err(reason) => {
+                eprintln!("gemelli-gui: failed to build app menu: {reason}");
+                None
+            }
+        };
 
         let (devices, banner) = match capture::list_devices() {
             Ok(devices) => (devices, None),
@@ -146,6 +165,8 @@ impl GemelliApp {
             output_dims: None,
             preview_dims: None,
             last_uploaded: None,
+            menu,
+            licenses_open: false,
         }
     }
 
@@ -203,6 +224,18 @@ impl GemelliApp {
         while let Ok(error) = self.errors_rx.try_recv() {
             self.banner = Some(error.to_string());
             self.worker = None;
+        }
+    }
+
+    /// Drains this frame's menu activations and applies each one. Exhaustive
+    /// match over `MenuAction` — a new variant added upstream forces this match
+    /// to be revisited instead of silently no-op'ing.
+    fn poll_menu_actions(&mut self) {
+        let Some(menu) = &self.menu else { return };
+        for action in menu.poll_actions() {
+            match action {
+                crate::menu::MenuAction::OpenLicenses => self.licenses_open = true,
+            }
         }
     }
 
@@ -470,6 +503,7 @@ impl eframe::App for GemelliApp {
     // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_errors();
+        self.poll_menu_actions();
         self.refresh_preview(ui.ctx());
 
         if let Some(message) = self.banner.clone() {

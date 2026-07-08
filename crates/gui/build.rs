@@ -19,7 +19,7 @@ fn run() -> Result<(), String> {
 
 /// Embeds a short git SHA (`VERGEN_GIT_SHA`) and the build date
 /// (`VERGEN_BUILD_DATE`) as compile-time env vars, for `menu::about_metadata`
-/// (Task 3) to read back via `option_env!` and show in the native About panel.
+/// to read back via `option_env!` and show in the native About panel.
 ///
 /// Deliberately uses vergen-gix's *default* `Emitter` — no `.fail_on_error()`,
 /// `.idempotent()`, or `.default_on_error()`. Verified empirically: when git info
