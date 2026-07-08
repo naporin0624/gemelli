@@ -17,6 +17,8 @@ gemelli-core = { path = "../core" }
 clap = { workspace = true }
 ctrlc = { workspace = true }
 thiserror = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
+# Platform gating lives inside gemelli-syphon itself (crate-wide
+# `#![cfg(target_os = "macos")]`), not in a `[target.'cfg(...)'.dependencies]`
+# table here: release-please's Rust manifest updater cannot parse cfg()
+# target tables and fails to bump this crate's version.
 gemelli-syphon = { path = "../syphon" }

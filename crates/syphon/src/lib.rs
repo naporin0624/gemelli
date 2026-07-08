@@ -1,3 +1,7 @@
+//! Syphon Metal publisher, macOS-only. The whole crate body is cfg-gated
+//! below (not via a `[target.'cfg(...)'.dependencies]` table in downstream
+//! Cargo.tomls) so release-please's Rust manifest updater — which cannot
+//! parse `cfg()` target tables — can still bump this crate's version.
 #![cfg(target_os = "macos")]
 
 mod ffi;
