@@ -219,4 +219,34 @@ mod run_capture_tests {
         assert_eq!(shared.frames_published.load(Ordering::SeqCst), 1);
         assert!(rx.try_recv().is_err(), "no error should have been sent");
     }
+
+    #[test]
+    fn config_swap_mid_run_affects_later_output_only() {
+        // Same frame content published twice; the second config rotates
+        // it 90°, so a changed *shape* (3x2 vs 2x3) proves the swap took
+        // effect, independent of any pixel-order subtlety.
+        let frame = asymmetric_frame();
+        let old_config = TransformConfig::default();
+        let new_config = TransformConfig { rotation: Rotation::R90, ..TransformConfig::default() };
+        let expected_first = transform::apply(&frame, &old_config).unwrap();
+        let expected_second = transform::apply(&frame, &new_config).unwrap();
+        let shared = SharedState::new(old_config);
+        let mut source = FakeSource::new(vec![frame.clone(), frame]);
+        let stop = AtomicBool::new(false);
+        let mut publisher = CollectingPublisher::new(|n| {
+            if n == 1 {
+                shared.transform.store(std::sync::Arc::new(new_config.clone()));
+            }
+            if n == 2 {
+                stop.store(true, Ordering::SeqCst);
+            }
+        });
+        let (tx, rx) = mpsc::channel::<WorkerError>();
+
+        run_capture(&mut source, &mut publisher, &shared, &stop, &tx);
+
+        assert_eq!(publisher.published, vec![expected_first, expected_second.clone()]);
+        assert_eq!(*shared.latest_output.lock().unwrap(), Some(expected_second));
+        assert!(rx.try_recv().is_err());
+    }
 }
