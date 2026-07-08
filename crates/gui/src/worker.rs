@@ -119,6 +119,37 @@ pub fn run_capture(
     }
 }
 
+/// Owns the capture thread. Dropping (or calling `stop`) sets the stop
+/// flag and joins.
+#[cfg_attr(not(test), allow(dead_code))]
+pub struct WorkerHandle {
+    stop: Arc<AtomicBool>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl WorkerHandle {
+    /// Idempotent: safe to call more than once (`Drop` calls it too).
+    pub fn stop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.join.take() {
+            // A panicked worker thread has nothing further this handle
+            // can do about it beyond having already requested `stop`.
+            let _ = handle.join();
+        }
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.join.as_ref().is_some_and(|handle| !handle.is_finished())
+    }
+}
+
+impl Drop for WorkerHandle {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 #[cfg(test)]
 mod run_capture_tests {
     use std::collections::VecDeque;
@@ -307,5 +338,107 @@ mod run_capture_tests {
         assert_eq!(*shared.latest_raw.lock().unwrap(), Some(frame));
         assert_eq!(*shared.latest_output.lock().unwrap(), None);
         assert_eq!(shared.frames_published.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[cfg(test)]
+mod handle_tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::thread;
+    use std::time::Duration;
+
+    use gemelli_core::capture::{CaptureError, CaptureSource};
+    use gemelli_core::frame::Frame;
+    use gemelli_core::publish::{PublishError, TexturePublisher};
+    use gemelli_core::transform::TransformConfig;
+
+    use super::{SharedState, WorkerError, WorkerHandle, run_capture};
+
+    /// Always returns the same 1x1 frame — lets a test run a real
+    /// `run_capture` thread that only stops when told to, with no bound
+    /// on frame count.
+    struct InfiniteSource {
+        frame: Frame,
+    }
+
+    impl CaptureSource for InfiniteSource {
+        fn next_frame(&mut self) -> Result<Frame, CaptureError> {
+            Ok(self.frame.clone())
+        }
+    }
+
+    struct NullPublisher;
+
+    impl TexturePublisher for NullPublisher {
+        fn publish(&mut self, _frame: &Frame) -> Result<(), PublishError> {
+            Ok(())
+        }
+    }
+
+    fn spawn_fake_worker(
+        shared: Arc<SharedState>,
+        errors: mpsc::Sender<WorkerError>,
+    ) -> WorkerHandle {
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = Arc::clone(&stop);
+        let join = thread::spawn(move || {
+            let mut source =
+                InfiniteSource { frame: Frame::new(1, 1, vec![0, 0, 0, 255]).unwrap() };
+            let mut publisher = NullPublisher;
+            run_capture(&mut source, &mut publisher, &shared, &thread_stop, &errors);
+        });
+        WorkerHandle { stop, join: Some(join) }
+    }
+
+    /// Busy-waits for the fake worker to have processed at least one
+    /// frame — a deterministic readiness signal instead of a blind sleep.
+    fn wait_for_first_frame(shared: &SharedState) {
+        while shared.frames_published.load(Ordering::SeqCst) == 0 {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn is_running_reflects_thread_lifecycle() {
+        let shared = Arc::new(SharedState::new(TransformConfig::default()));
+        let (tx, _rx) = mpsc::channel();
+        let mut handle = spawn_fake_worker(Arc::clone(&shared), tx);
+
+        wait_for_first_frame(&shared);
+        assert!(handle.is_running());
+
+        handle.stop(); // blocks until the thread actually joins
+
+        assert!(!handle.is_running());
+    }
+
+    #[test]
+    fn stop_is_idempotent() {
+        let shared = Arc::new(SharedState::new(TransformConfig::default()));
+        let (tx, _rx) = mpsc::channel();
+        let mut handle = spawn_fake_worker(shared, tx);
+
+        handle.stop();
+        handle.stop(); // must not panic or block forever
+
+        assert!(!handle.is_running());
+    }
+
+    #[test]
+    fn drop_stops_the_worker_thread() {
+        let shared = Arc::new(SharedState::new(TransformConfig::default()));
+        let (tx, _rx) = mpsc::channel();
+        let handle = spawn_fake_worker(Arc::clone(&shared), tx);
+
+        wait_for_first_frame(&shared);
+        drop(handle);
+
+        // Drop's stop() joins before returning, so the thread is already
+        // dead by this point — no polling needed for this assertion to
+        // be non-flaky.
+        let count_at_drop = shared.frames_published.load(Ordering::SeqCst);
+        thread::sleep(Duration::from_millis(20));
+        assert_eq!(shared.frames_published.load(Ordering::SeqCst), count_at_drop);
     }
 }
