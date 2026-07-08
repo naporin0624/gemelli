@@ -65,7 +65,7 @@ gemelli [DEVICE_INDEX] [OPTIONS]
 | `--crop <SPEC>` | `WxH+X+Y`, e.g. `1280x720+320+180` | no crop | Crop before any other transform |
 | `--scale <SPEC>` | `WxH` or a positive factor, e.g. `960x540` or `0.5` | no scale | Resize, applied last |
 | `--server-name <NAME>` | string | `gemelli` | Name of the published Syphon server |
-| `--fps <N>` | integer | camera default | Requested capture fps (best-effort) |
+| `--fps <N>` | positive integer (`0` rejected) | none: highest resolution, then best fps at that resolution | Prefers a format that exactly matches `N` fps; falls back to the highest-resolution format if no exact match exists (best-effort) |
 
 Transform order is always **crop → rotate → flip → scale**, regardless of the order options are
 given on the command line.
