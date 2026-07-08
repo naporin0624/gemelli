@@ -385,9 +385,9 @@ impl GemelliApp {
 
             let running = self.worker.as_ref().is_some_and(WorkerHandle::is_running);
             if running {
-                ui.colored_label(theme::tokens::ACCENT_PUBLISH, "\u{25cf} publishing");
+                ui.colored_label(theme::tokens::ACCENT, "\u{25cf} publishing");
             } else {
-                ui.colored_label(theme::tokens::ACCENT_IDLE, "\u{25cb} stopped");
+                ui.colored_label(theme::tokens::TEXT_SUBTLE, "\u{25cb} stopped");
             }
         });
     }
