@@ -112,11 +112,10 @@ pub struct GemelliApp {
     /// `None` when `menu::build_app_menu()` failed at startup (see `GemelliApp::new`)
     /// — the app still runs, just without a menu bar.
     menu: Option<crate::menu::AppMenu>,
-    /// Set by `poll_menu_actions` on `MenuAction::OpenLicenses`. Write-only in this
-    /// task — the licenses viewport (a later task) reads it to decide whether to
-    /// show/focus its window. `#[allow(dead_code)]` is required in the meantime
-    /// (see verification log: this field is unread in both test and non-test
-    /// builds until that task lands).
+    /// Set by `poll_menu_actions` on `MenuAction::OpenLicenses`. Nothing reads
+    /// it yet — the licenses window will be its reader — so the field is
+    /// write-only and needs an unconditional `#[allow(dead_code)]` to pass the
+    /// `-D warnings` clippy gate.
     #[allow(dead_code)]
     licenses_open: bool,
 }

@@ -5,7 +5,7 @@
 //! every target; only the `Menu::init_for_nsapp` call inside `build_app_menu` —
 //! which installs the menu as the app's NSApp main menu — is macOS-only.
 
-use muda::{AboutMetadata, MenuId};
+use muda::{AboutMetadata, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 /// What the running app should do in response to a menu activation. `About` and
 /// `Quit` are native `PredefinedMenuItem`s handled entirely by the OS (or by muda
@@ -45,15 +45,13 @@ fn action_for(event_id: &MenuId, licenses_id: &MenuId) -> Option<MenuAction> {
     (event_id == licenses_id).then_some(MenuAction::OpenLicenses)
 }
 
-use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
-
 /// The app's native menu bar, plus the id needed to recognize its one custom item.
 pub struct AppMenu {
     // Never read again after `build_app_menu` installs it, but must stay alive
     // for the app's lifetime: dropping `Menu` frees its native (NSMenu on macOS)
     // backing storage, which would tear down the menu bar it was just installed
-    // as. `#[allow(dead_code)]` is required here — this field is genuinely
-    // write-only, in both the test and non-test build (see verification log).
+    // as. The field is write-only in every build, so it needs an unconditional
+    // `#[allow(dead_code)]`.
     #[allow(dead_code)]
     menu: Menu,
     licenses_id: MenuId,
