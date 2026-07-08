@@ -57,6 +57,21 @@ impl CropMapping {
     }
 }
 
+const MIN_CROP_SIDE: u32 = 16;
+
+/// Normalizes a (possibly drag-produced) rect: at least `16x16` frame
+/// px, fully inside `[0, frame_width) x [0, frame_height)`. Width/height
+/// are bounded first so the position clamp's `frame_width - width`
+/// subtraction can never underflow.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn clamp_rect(rect: CropRect, frame_width: u32, frame_height: u32) -> CropRect {
+    let width = rect.width.clamp(MIN_CROP_SIDE.min(frame_width), frame_width);
+    let height = rect.height.clamp(MIN_CROP_SIDE.min(frame_height), frame_height);
+    let x = rect.x.min(frame_width - width);
+    let y = rect.y.min(frame_height - height);
+    CropRect { width, height, x, y }
+}
+
 #[cfg(test)]
 mod coord_tests {
     use super::{to_frame_coord, to_screen_coord};
@@ -102,5 +117,57 @@ mod crop_mapping_tests {
 
         assert_eq!(screen.min, egui::pos2(260.0, 140.0));
         assert_eq!(screen.max, egui::pos2(580.0, 320.0));
+    }
+}
+
+#[cfg(test)]
+mod clamp_rect_tests {
+    use gemelli_core::transform::CropRect;
+
+    use super::clamp_rect;
+
+    const FRAME_W: u32 = 1920;
+    const FRAME_H: u32 = 1080;
+
+    #[test]
+    fn below_minimum_size_grows_to_16x16() {
+        let rect = CropRect { width: 10, height: 10, x: 0, y: 0 };
+        assert_eq!(
+            clamp_rect(rect, FRAME_W, FRAME_H),
+            CropRect { width: 16, height: 16, x: 0, y: 0 }
+        );
+    }
+
+    #[test]
+    fn overflow_right_edge_slides_x_left() {
+        let rect = CropRect { width: 100, height: 100, x: 1900, y: 0 };
+        assert_eq!(
+            clamp_rect(rect, FRAME_W, FRAME_H),
+            CropRect { width: 100, height: 100, x: 1820, y: 0 }
+        );
+    }
+
+    #[test]
+    fn overflow_bottom_edge_slides_y_up() {
+        let rect = CropRect { width: 100, height: 100, x: 0, y: 1060 };
+        assert_eq!(
+            clamp_rect(rect, FRAME_W, FRAME_H),
+            CropRect { width: 100, height: 100, x: 0, y: 980 }
+        );
+    }
+
+    #[test]
+    fn oversize_both_dimensions_shrinks_to_full_frame() {
+        let rect = CropRect { width: 3000, height: 3000, x: 0, y: 0 };
+        assert_eq!(
+            clamp_rect(rect, FRAME_W, FRAME_H),
+            CropRect { width: FRAME_W, height: FRAME_H, x: 0, y: 0 }
+        );
+    }
+
+    #[test]
+    fn already_valid_rect_is_unchanged() {
+        let rect = CropRect { width: 960, height: 540, x: 480, y: 270 };
+        assert_eq!(clamp_rect(rect, FRAME_W, FRAME_H), rect);
     }
 }
