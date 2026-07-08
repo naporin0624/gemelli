@@ -32,13 +32,18 @@ pub enum CaptureError {
 }
 
 /// Converts tightly-packed RGB8 to tightly-packed BGRA8 with opaque alpha.
+/// Preallocates the output and writes each pixel by index so the swizzle
+/// vectorizes, instead of pushing a fresh 4-byte array per pixel.
 fn rgb_to_bgra(rgb: &[u8], width: u32, height: u32) -> Vec<u8> {
     let pixel_count =
         usize::try_from(width).unwrap_or(0).saturating_mul(usize::try_from(height).unwrap_or(0));
-    let mut bgra = Vec::with_capacity(pixel_count.saturating_mul(4));
+    let mut bgra = vec![0_u8; pixel_count.saturating_mul(4)];
 
-    for pixel in rgb.chunks_exact(3) {
-        bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+    for (src, dst) in rgb.chunks_exact(3).zip(bgra.chunks_exact_mut(4)) {
+        dst[0] = src[2];
+        dst[1] = src[1];
+        dst[2] = src[0];
+        dst[3] = 255;
     }
 
     bgra
@@ -197,6 +202,44 @@ mod tests {
         let bgra = rgb_to_bgra(&rgb, 2, 1);
 
         assert_eq!(bgra, vec![30, 20, 10, 255, 60, 50, 40, 255]);
+    }
+
+    #[test]
+    fn rgb_to_bgra_handles_multiple_rows_and_returns_exact_length() {
+        // 2x2: four distinct RGB pixels, row-major.
+        let rgb = vec![
+            1, 2, 3, 4, 5, 6, // row 0: (R1 G2 B3) (R4 G5 B6)
+            7, 8, 9, 10, 11, 12, // row 1: (R7 G8 B9) (R10 G11 B12)
+        ];
+
+        let bgra = rgb_to_bgra(&rgb, 2, 2);
+
+        assert_eq!(bgra.len(), 2 * 2 * 4);
+        assert_eq!(
+            bgra,
+            vec![
+                3, 2, 1, 255, 6, 5, 4, 255, // row 0 → BGRA
+                9, 8, 7, 255, 12, 11, 10, 255, // row 1 → BGRA
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "micro-benchmark; run manually with `cargo test -p gemelli-core \
+                bench_rgb_to_bgra -- --ignored --nocapture`"]
+    fn bench_rgb_to_bgra() {
+        let (w, h) = (1920_u32, 1080_u32);
+        let len = usize::try_from(w).unwrap() * usize::try_from(h).unwrap() * 3;
+        let rgb = vec![128_u8; len];
+
+        let start = std::time::Instant::now();
+        let iters = 100;
+        for _ in 0..iters {
+            let out = rgb_to_bgra(&rgb, w, h);
+            std::hint::black_box(&out);
+        }
+        let per = start.elapsed().as_secs_f64() * 1000.0 / f64::from(iters);
+        println!("rgb_to_bgra {w}x{h}: {per:.2} ms/frame");
     }
 
     #[test]
