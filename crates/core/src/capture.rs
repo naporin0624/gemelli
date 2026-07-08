@@ -72,10 +72,19 @@ fn query_failed(error: NokhwaError) -> CaptureError {
     CaptureError::QueryFailed { reason: error.to_string() }
 }
 
-fn requested_format_type(requested_fps: Option<u32>) -> RequestedFormatType {
+/// Ordered attempts for `Camera::new`: nokhwa treats `HighestFrameRate` as an
+/// exact match, so a camera lacking that exact fps would otherwise fail to
+/// open outright. Trying the exact fps first, then falling back to the
+/// highest-resolution format, keeps the camera openable either way.
+fn format_candidates(requested_fps: Option<u32>) -> Vec<RequestedFormatType> {
     match requested_fps {
-        Some(fps) => RequestedFormatType::HighestFrameRate(fps),
-        None => RequestedFormatType::AbsoluteHighestFrameRate,
+        Some(fps) => {
+            vec![
+                RequestedFormatType::HighestFrameRate(fps),
+                RequestedFormatType::AbsoluteHighestResolution,
+            ]
+        }
+        None => vec![RequestedFormatType::AbsoluteHighestResolution],
     }
 }
 
@@ -90,14 +99,34 @@ pub struct NokhwaSource {
 }
 
 impl NokhwaSource {
+    /// Tries each candidate format in order (see `format_candidates`), opening the
+    /// camera with the first one that succeeds. If every candidate fails, the last
+    /// attempt's error is reported since it best reflects the final, most-relaxed
+    /// request that the camera still refused.
     pub fn open(index: u32, requested_fps: Option<u32>) -> Result<Self, CaptureError> {
-        let format_type = requested_format_type(requested_fps);
-        let requested = RequestedFormat::new::<RgbFormat>(format_type);
-        let mut camera = Camera::new(CameraIndex::Index(index), requested)
-            .map_err(|error| open_failed(index, error))?;
-        camera.open_stream().map_err(|error| open_failed(index, error))?;
+        let mut attempts = format_candidates(requested_fps).into_iter();
+        let Some(mut format_type) = attempts.next() else {
+            return Err(CaptureError::OpenFailed {
+                index,
+                reason: "no capture format candidates".to_string(),
+            });
+        };
 
-        Ok(Self { camera })
+        loop {
+            let requested = RequestedFormat::new::<RgbFormat>(format_type);
+            match Camera::new(CameraIndex::Index(index), requested) {
+                Ok(mut camera) => {
+                    camera.open_stream().map_err(|error| open_failed(index, error))?;
+                    return Ok(Self { camera });
+                }
+                Err(error) => {
+                    let Some(next_format) = attempts.next() else {
+                        return Err(open_failed(index, error));
+                    };
+                    format_type = next_format;
+                }
+            }
+        }
     }
 }
 
@@ -117,8 +146,8 @@ impl CaptureSource for NokhwaSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureError, CaptureSource, DeviceInfo, devices_from, frame_read_failed, index_number,
-        open_failed, query_failed, requested_format_type, rgb_to_bgra, to_device_info,
+        CaptureError, CaptureSource, DeviceInfo, devices_from, format_candidates,
+        frame_read_failed, index_number, open_failed, query_failed, rgb_to_bgra, to_device_info,
     };
     use crate::frame::Frame;
 
@@ -257,19 +286,25 @@ mod tests {
     }
 
     #[test]
-    fn requested_format_type_uses_absolute_highest_frame_rate_by_default() {
-        let format_type = requested_format_type(None);
+    fn format_candidates_prioritizes_resolution_when_fps_omitted() {
+        let candidates = format_candidates(None);
 
+        assert_eq!(candidates.len(), 1);
         assert!(matches!(
-            format_type,
-            nokhwa::utils::RequestedFormatType::AbsoluteHighestFrameRate
+            candidates[0],
+            nokhwa::utils::RequestedFormatType::AbsoluteHighestResolution
         ));
     }
 
     #[test]
-    fn requested_format_type_honors_requested_fps() {
-        let format_type = requested_format_type(Some(30));
+    fn format_candidates_tries_exact_fps_before_resolution_fallback() {
+        let candidates = format_candidates(Some(30));
 
-        assert!(matches!(format_type, nokhwa::utils::RequestedFormatType::HighestFrameRate(30)));
+        assert_eq!(candidates.len(), 2);
+        assert!(matches!(candidates[0], nokhwa::utils::RequestedFormatType::HighestFrameRate(30)));
+        assert!(matches!(
+            candidates[1],
+            nokhwa::utils::RequestedFormatType::AbsoluteHighestResolution
+        ));
     }
 }
