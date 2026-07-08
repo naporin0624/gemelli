@@ -18,21 +18,19 @@ fn main() -> ExitCode {
 // this crate's binary links `webcam-sharedtexture-syphon` on macOS, it needs
 // the same rpath entries itself or `@rpath/Syphon.framework/...` cannot be
 // resolved at process launch.
+//
+// Rather than duplicating the rpath list here, read it back from syphon's
+// `links = "syphon_bridge"` build-script metadata (published as
+// `cargo::metadata=rpath=...` in crates/syphon/build.rs) via the
+// `DEP_SYPHON_BRIDGE_RPATH` env var Cargo derives from it. This var is only
+// set when the syphon crate is an active dependency (macOS targets), so its
+// absence on other platforms is expected and not an error.
 fn run() -> Result<(), String> {
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS")
-        .map_err(|err| format!("CARGO_CFG_TARGET_OS is not set: {err}"))?;
-
-    if target_os != "macos" {
+    let Ok(rpaths) = std::env::var("DEP_SYPHON_BRIDGE_RPATH") else {
         return Ok(());
-    }
+    };
 
-    // Covers `target/debug/<bin>` and `target/debug/deps/<test-binary>`
-    // (and the equivalent one level deeper under an explicit --target triple).
-    for rel in [
-        "@loader_path/../../vendor",
-        "@loader_path/../../../vendor",
-        "@loader_path/../../../../vendor",
-    ] {
+    for rel in rpaths.split(';').filter(|rel| !rel.is_empty()) {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{rel}");
     }
 

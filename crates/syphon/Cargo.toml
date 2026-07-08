@@ -4,6 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+# Enables the DEP_SYPHON_BRIDGE_* build-script metadata channel; see build.rs
+# and crates/cli/build.rs (the consumer of DEP_SYPHON_BRIDGE_RPATH).
+links = "syphon_bridge"
 
 [lints]
 workspace = true

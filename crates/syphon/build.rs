@@ -63,13 +63,20 @@ fn run() -> Result<(), String> {
     // target/debug/, target/debug/deps/, or — with an explicit --target
     // triple — one directory deeper; cover each depth back to the workspace
     // root so every binary kind resolves the same relative vendor/ path.
-    for rel in [
+    let rpaths = [
         "@loader_path/../../vendor",
         "@loader_path/../../../vendor",
         "@loader_path/../../../../vendor",
-    ] {
+    ];
+    for rel in rpaths {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{rel}");
     }
+
+    // `cargo:rustc-link-arg` only applies to this crate's own binaries, not
+    // downstream ones (see crates/cli/build.rs), so also publish the same
+    // list via the `links = "syphon_bridge"` metadata channel: downstream
+    // build scripts read it back as `DEP_SYPHON_BRIDGE_RPATH`.
+    println!("cargo::metadata=rpath={}", rpaths.join(";"));
 
     Ok(())
 }
