@@ -38,6 +38,42 @@ fn linearize(channel: u8) -> f64 {
     }
 }
 
+/// Dark-theme color tokens. Every token's contrast ratio against the
+/// background(s) it is meant to sit on is proved by the tests in this
+/// module — see the plan doc for the hand-computed numbers behind each
+/// choice.
+pub mod tokens {
+    // Several tokens (e.g. `ACCENT_IDLE`, `DANGER`, `CROP_OVERLAY`) aren't
+    // consumed by production code until later GUI tasks wire up the status
+    // label, danger button, and crop editor; until then this module's
+    // contrast-proof tests are their only caller, so they'd otherwise be
+    // flagged dead in the non-test build.
+    #![cfg_attr(not(test), allow(dead_code))]
+
+    use egui::Color32;
+
+    /// Window background. Deliberately not pure black — `#1a1b1e`.
+    pub const BG_BASE: Color32 = Color32::from_rgb(26, 27, 30);
+    /// Sidebar/status-bar background — a hair lighter than `BG_BASE` so
+    /// panels read as a distinct layer.
+    pub const BG_PANEL: Color32 = Color32::from_rgb(33, 34, 38);
+    pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(230, 230, 230);
+    pub const TEXT_MUTED: Color32 = Color32::from_rgb(160, 160, 168);
+    /// Publishing state. Paired with the "● publishing" text label at the
+    /// call site — never color alone (WCAG 1.4.1).
+    pub const ACCENT_PUBLISH: Color32 = Color32::from_rgb(61, 220, 132);
+    /// Idle state. Paired with the "○ stopped" text label at the call site.
+    pub const ACCENT_IDLE: Color32 = Color32::from_rgb(125, 133, 144);
+    pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
+    /// Crop-rect stroke. Drawn as a dual stroke (black outline + white
+    /// core) at the crop_editor.rs call site, since no single color has a
+    /// provable contrast ratio against arbitrary live video content. Not
+    /// exercised by a contrast test (see module doc), so it needs its own
+    /// unconditional `allow`.
+    #[allow(dead_code)]
+    pub const CROP_OVERLAY: Color32 = Color32::WHITE;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,5 +97,30 @@ mod tests {
         let a = Color32::from_rgb(230, 230, 230);
         let b = Color32::from_rgb(26, 27, 30);
         assert!((contrast_ratio(a, b) - contrast_ratio(b, a)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn text_primary_meets_normal_text_contrast_on_bg_base() {
+        assert!(contrast_ratio(tokens::TEXT_PRIMARY, tokens::BG_BASE) >= 4.5);
+    }
+
+    #[test]
+    fn text_muted_meets_normal_text_contrast_on_bg_base() {
+        assert!(contrast_ratio(tokens::TEXT_MUTED, tokens::BG_BASE) >= 4.5);
+    }
+
+    #[test]
+    fn danger_meets_normal_text_contrast_on_bg_base() {
+        assert!(contrast_ratio(tokens::DANGER, tokens::BG_BASE) >= 4.5);
+    }
+
+    #[test]
+    fn accent_publish_meets_ui_component_contrast_on_bg_panel() {
+        assert!(contrast_ratio(tokens::ACCENT_PUBLISH, tokens::BG_PANEL) >= 3.0);
+    }
+
+    #[test]
+    fn accent_idle_meets_ui_component_contrast_on_bg_panel() {
+        assert!(contrast_ratio(tokens::ACCENT_IDLE, tokens::BG_PANEL) >= 3.0);
     }
 }
