@@ -34,3 +34,18 @@ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
 ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+================================================================================
+
+LINE Seed JP
+https://github.com/line/seed (release v20251119)
+
+Fetched at build time by scripts/fetch-fonts.sh and embedded into the
+gemelli-gui binary via include_bytes! (crates/gui/src/fonts.rs).
+
+Licensed under the SIL Open Font License, Version 1.1. The full license text
+is written to vendor/fonts/LICENSE by scripts/fetch-fonts.sh at fetch time;
+it is not committed to this repository (vendor/fonts/ is gitignored).
+
+"LINE" is a trademark of LY Corporation. This notice does not grant any
+rights to that trademark.
