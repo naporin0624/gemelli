@@ -14,6 +14,8 @@ ctrlc = "3.5"
 eframe = "0.35"
 egui = "0.35"
 arc-swap = "1.9"
+vergen-gix = { version = "10.0.1", features = ["build"] }
+muda = "0.19.3"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
