@@ -3,6 +3,7 @@
 use std::process::ExitCode;
 
 mod app;
+mod fps_meter;
 mod preview;
 mod theme;
 
