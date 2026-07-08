@@ -23,8 +23,8 @@ enum XtaskError {
     Utf8(std::string::FromUtf8Error),
     #[error("failed to parse JSON: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("I/O error: {0}")]
-    Io(std::io::Error),
+    #[error("I/O error at {path}: {source}")]
+    Io { path: String, source: std::io::Error },
     #[error(
         "license artifact is stale: {0} does not match freshly generated output; run `cargo xtask gen-licenses`"
     )]
@@ -83,7 +83,8 @@ fn run_cargo_bundle_licenses() -> Result<normalize::CargoBundleOutput, XtaskErro
 
 fn read_appendix(root: &Path) -> Result<Vec<LicenseEntry>, XtaskError> {
     let path = root.join("licenses/appendix.json");
-    let raw = std::fs::read_to_string(path).map_err(XtaskError::Io)?;
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|source| XtaskError::Io { path: path.display().to_string(), source })?;
     serde_json::from_str(&raw).map_err(XtaskError::Json)
 }
 
@@ -102,7 +103,8 @@ fn build_artifacts(root: &Path) -> Result<Artifacts, XtaskError> {
 }
 
 fn check_matches(path: &Path, expected: &str) -> Result<(), XtaskError> {
-    let actual = std::fs::read_to_string(path).map_err(XtaskError::Io)?;
+    let actual = std::fs::read_to_string(path)
+        .map_err(|source| XtaskError::Io { path: path.display().to_string(), source })?;
     if actual != expected {
         return Err(XtaskError::Stale(path.display().to_string()));
     }
@@ -123,10 +125,13 @@ fn gen_licenses(check: bool) -> Result<(), XtaskError> {
     }
 
     if let Some(parent) = assets_path.parent() {
-        std::fs::create_dir_all(parent).map_err(XtaskError::Io)?;
+        std::fs::create_dir_all(parent)
+            .map_err(|source| XtaskError::Io { path: parent.display().to_string(), source })?;
     }
-    std::fs::write(&assets_path, &artifacts.json).map_err(XtaskError::Io)?;
-    std::fs::write(&notices_path, &artifacts.notices).map_err(XtaskError::Io)?;
+    std::fs::write(&assets_path, &artifacts.json)
+        .map_err(|source| XtaskError::Io { path: assets_path.display().to_string(), source })?;
+    std::fs::write(&notices_path, &artifacts.notices)
+        .map_err(|source| XtaskError::Io { path: notices_path.display().to_string(), source })?;
     println!("wrote {}", assets_path.display());
     println!("wrote {}", notices_path.display());
     Ok(())
