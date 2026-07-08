@@ -2,9 +2,10 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bump-minor-pre-major": true,
   "packages": {
-    ".": {
-      "release-type": "rust",
-      "package-name": "gemelli"
-    }
-  }
+    "crates/core": { "release-type": "rust" },
+    "crates/cli": { "release-type": "rust" },
+    "crates/gui": { "release-type": "rust" },
+    "crates/syphon": { "release-type": "rust" }
+  },
+  "plugins": [{ "type": "cargo-workspace", "merge": true }]
 }
