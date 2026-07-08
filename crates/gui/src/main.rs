@@ -3,6 +3,7 @@
 use std::process::ExitCode;
 
 mod app;
+mod theme;
 
 fn main() -> ExitCode {
     let options = eframe::NativeOptions {
