@@ -1496,7 +1496,7 @@ dependencies = [
 
 [[package]]
 name = "gemelli-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "ctrlc",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "gemelli-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nokhwa",
  "thiserror 2.0.18",
@@ -1515,7 +1515,7 @@ dependencies = [
 
 [[package]]
 name = "gemelli-gui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arc-swap",
  "eframe",
@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "gemelli-syphon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cc",
  "gemelli-core",
