@@ -15,4 +15,8 @@ path = "src/main.rs"
 [dependencies]
 webcam-sharedtexture-core = { path = "../core" }
 clap = { workspace = true }
+ctrlc = { workspace = true }
 thiserror = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+webcam-sharedtexture-syphon = { path = "../syphon" }
