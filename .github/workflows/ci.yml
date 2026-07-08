@@ -8,12 +8,10 @@ on:
 
 jobs:
   check:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     name: Lint & Test
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - uses: dtolnay/rust-toolchain@1.96.1
         with:
@@ -21,18 +19,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # gemelli-syphon links against Apple's Syphon.framework, built locally from the
-      # vendor/syphon-src submodule — see README.md "Setup" for the source of these commands.
-      - name: Build Syphon.framework
-        run: |
-          cd vendor/syphon-src
-          xcodebuild -project Syphon.xcodeproj \
-            -scheme Syphon \
-            -configuration Release \
-            -derivedDataPath build \
-            ONLY_ACTIVE_ARCH=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES
-          cp -R build/Build/Products/Release/Syphon.framework ../Syphon.framework
+      # gemelli-core's nokhwa (input-native) needs V4L headers to build on Linux.
+      - name: Install V4L dev headers
+        run: sudo apt-get update && sudo apt-get install -y libv4l-dev pkg-config
 
       # gemelli-gui embeds LINE Seed JP via include_bytes! — see scripts/fetch-fonts.sh.
       - name: Fetch fonts
@@ -44,7 +33,9 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Hardware-dependent tests are #[ignore]d and are not run here; see the
-      # "Manual verification checklist" in README.md for the camera/Syphon-client steps.
+      # Native publishers (gemelli-syphon / gemelli-spout) are cfg-gated to
+      # macOS / Windows and compile to empty stubs here; their bridges are
+      # verified locally per README's "Manual verification checklist".
+      # Hardware-dependent tests are #[ignore]d.
       - name: cargo test
         run: cargo test --workspace
