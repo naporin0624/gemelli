@@ -50,7 +50,7 @@
 issue, .claude/rules, skills やコードが参考になる。
 
 - Spout/Syphon の rust 実装に関しては https://github.com/naporin0624/electron-texture-bridge が参考になるのでよく見ること
-- web の映像を回転させる cli option については https://github.com/naporin0624/ravioli を参考にすること
+- webcam の映像を回転させる cli option については https://github.com/naporin0624/ravioli を参考にすること
 
 
 ## resources rules
