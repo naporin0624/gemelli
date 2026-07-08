@@ -94,11 +94,11 @@ pub mod tokens {
     /// (oklch 0.520 0 0). Proved at the 3.0:1 non-text/UI-component threshold
     /// (WCAG 1.4.11), since it is a stroke, never text.
     pub const BORDER: Color32 = Color32::from_rgb(105, 105, 105);
-    /// Non-informational divider lines only — Cannelloni `dark.borderSubtle`
-    /// (oklch 0.380 0 0). Not yet consumed: reserved for the licenses window's
-    /// hairline dividers (design doc section 3, a later task) — `allow(dead_code)`
-    /// until that call site exists. No contrast proof needed: WCAG 1.4.11 exempts
-    /// purely decorative, non-informational separators.
+    /// Non-informational hairline dividers — Cannelloni `dark.borderSubtle`
+    /// (oklch 0.380 0 0). No consumer yet: the licenses window's separators
+    /// use egui's ambient widget stroke, so this stays `allow(dead_code)`
+    /// until a call site needs an explicit token. No contrast proof needed:
+    /// WCAG 1.4.11 exempts purely decorative separators.
     #[allow(dead_code)]
     pub const BORDER_SUBTLE: Color32 = Color32::from_rgb(66, 66, 66);
 

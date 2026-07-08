@@ -18,8 +18,10 @@ fn run() -> Result<(), String> {
 }
 
 /// Embeds a short git SHA (`VERGEN_GIT_SHA`) and the build date
-/// (`VERGEN_BUILD_DATE`) as compile-time env vars, for `menu::about_metadata`
-/// to read back via `option_env!` and show in the native About panel.
+/// (`VERGEN_BUILD_DATE`) as compile-time env vars. `VERGEN_GIT_SHA` is read
+/// back via `option_env!` by `menu::about_metadata` for the native About
+/// panel; `VERGEN_BUILD_DATE` is embedded for build provenance and has no
+/// in-app reader.
 ///
 /// Deliberately uses vergen-gix's *default* `Emitter` — no `.fail_on_error()`,
 /// `.idempotent()`, or `.default_on_error()`. Verified empirically: when git info
