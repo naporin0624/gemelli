@@ -15,6 +15,30 @@ use crate::theme;
 use crate::widgets;
 use crate::worker::{SharedState, WorkerError, WorkerHandle, WorkerSpec, spawn_worker};
 
+/// Outcome of evaluating a close request against the tray's quit intent — see
+/// `decide_close`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseDecision {
+    DoNothing,
+    Minimize,
+    InitiateQuit,
+}
+
+/// Decides what a `WindowEvent::CloseRequested` (the red-button close, per the
+/// design doc's exit-path matrix) should do, given whether the tray's "Quit"
+/// item has already been chosen this run. `wants_quit` takes priority so a
+/// tray-initiated quit still reaches `InitiateQuit` even on a frame where
+/// `close_requested` also happens to be true.
+fn decide_close(close_requested: bool, wants_quit: bool) -> CloseDecision {
+    if wants_quit {
+        CloseDecision::InitiateQuit
+    } else if close_requested {
+        CloseDecision::Minimize
+    } else {
+        CloseDecision::DoNothing
+    }
+}
+
 /// (h, v) toggle state -> `Flip`. Exhaustive over all four bool pairs — no `_` arm, so a new
 /// `Flip` variant added upstream would force this match to be revisited instead of silently
 /// falling through.
@@ -137,6 +161,17 @@ pub struct GemelliApp {
     /// `None` when `menu::build_app_menu()` failed at startup (see `GemelliApp::new`)
     /// — the app still runs, just without a menu bar.
     menu: Option<crate::menu::AppMenu>,
+    /// `None` when `tray::build_tray()` failed at startup — the app still runs,
+    /// just without a menu-bar tray icon.
+    tray: Option<crate::tray::AppTray>,
+    /// Owned drain point for the single `MenuEvent::set_event_handler` installed
+    /// in `new` (see its doc comment) — replaces muda's own global receiver so
+    /// the app menu and tray menu share one channel with no event stealing.
+    events_rx: mpsc::Receiver<muda::MenuEvent>,
+    /// Set once the tray's "Quit gemelli" item fires; `decide_close` checks this
+    /// before `close_requested` so a tray-initiated quit isn't downgraded to a
+    /// minimize on whatever frame the window also happens to be closing.
+    wants_quit: bool,
 }
 
 impl GemelliApp {
@@ -151,6 +186,24 @@ impl GemelliApp {
                 None
             }
         };
+        let tray = match crate::tray::build_tray() {
+            Ok(tray) => Some(tray),
+            Err(reason) => {
+                eprintln!("gemelli-gui: failed to build tray icon: {reason}");
+                None
+            }
+        };
+
+        // Single global handler for both the app menu and the tray menu (see the
+        // `events_rx` field doc comment): forwards every activation into our own
+        // channel and wakes the event loop, since egui's own `ui`/`update` may
+        // not run again on its own while the window is minimized.
+        let (events_tx, events_rx) = mpsc::channel();
+        let repaint_ctx = cc.egui_ctx.clone();
+        muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
+            let _ = events_tx.send(event);
+            repaint_ctx.request_repaint();
+        }));
 
         let (devices, banner) = match capture::list_devices() {
             Ok(devices) => (devices, None),
@@ -185,6 +238,9 @@ impl GemelliApp {
             preview_dims: None,
             last_uploaded: None,
             menu,
+            tray,
+            events_rx,
+            wants_quit: false,
         }
     }
 
@@ -245,15 +301,51 @@ impl GemelliApp {
         }
     }
 
-    /// Drains this frame's menu activations and applies each one. Exhaustive
-    /// match over `MenuAction` — a new variant added upstream forces this match
-    /// to be revisited instead of silently no-op'ing.
-    fn poll_menu_actions(&mut self, ctx: &egui::Context) {
-        let Some(menu) = &self.menu else { return };
-        for action in menu.poll_actions() {
-            match action {
-                crate::menu::MenuAction::OpenLicenses => self.licenses.request_open(ctx),
+    /// Drains this frame's queued menu/tray activations (from the single
+    /// `events_rx` installed in `new`) and applies each one. Never blocks
+    /// (`try_recv`) — safe to call once per frame.
+    ///
+    /// Each event is offered to both `self.menu` and `self.tray`'s `action_for`
+    /// before either match runs, so both immutable borrows end immediately —
+    /// `action_for` returns an owned `Option`, which is what lets the borrow
+    /// checker allow the subsequent `&mut self` field writes below.
+    fn poll_native_events(&mut self, ctx: &egui::Context) {
+        while let Ok(event) = self.events_rx.try_recv() {
+            let menu_action = self.menu.as_ref().and_then(|m| m.action_for(event.id()));
+            let tray_action = self.tray.as_ref().and_then(|t| t.action_for(event.id()));
+            if let Some(action) = menu_action {
+                match action {
+                    crate::menu::MenuAction::OpenLicenses => self.licenses.request_open(ctx),
+                }
+            } else if let Some(action) = tray_action {
+                match action {
+                    crate::tray::TrayAction::Show => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    crate::tray::TrayAction::Quit => self.wants_quit = true,
+                }
             }
+        }
+    }
+
+    /// Applies `decide_close`'s verdict for this frame's close-request state.
+    ///
+    /// Only the red-button close ever reaches here: Cmd+Q and the Dock's "Quit"
+    /// terminate the process directly via `[NSApp terminate:]` and never emit
+    /// `WindowEvent::CloseRequested`, so they bypass this entirely and are free
+    /// to keep working with no extra handling (see the design doc's exit-path
+    /// matrix). `CancelClose` must be sent before `Minimized(true)` — otherwise
+    /// eframe would let the already-in-flight close proceed to actually
+    /// terminate the app instead of just hiding the window.
+    fn handle_close(&mut self, ctx: &egui::Context, close_requested: bool) {
+        match decide_close(close_requested, self.wants_quit) {
+            CloseDecision::DoNothing => {}
+            CloseDecision::Minimize => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
+            CloseDecision::InitiateQuit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         }
     }
 
@@ -591,7 +683,11 @@ impl eframe::App for GemelliApp {
     // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_errors();
-        self.poll_menu_actions(ui.ctx());
+        self.poll_native_events(ui.ctx());
+
+        let close_requested = ui.ctx().input(|i| i.viewport().close_requested());
+        self.handle_close(ui.ctx(), close_requested);
+
         self.refresh_preview(ui.ctx());
         self.licenses.show(ui.ctx());
 
@@ -633,11 +729,31 @@ mod tests {
     use gemelli_core::transform::{CropRect, Flip, Rotation, ScaleSpec, TransformConfig};
 
     use super::{
-        build_transform, drain_stale_errors, flip_from_toggles, refit_crop,
-        rotation_from_segment_index, rotation_segment_index,
+        CloseDecision, build_transform, decide_close, drain_stale_errors, flip_from_toggles,
+        refit_crop, rotation_from_segment_index, rotation_segment_index,
     };
     use crate::sidebar::ScaleInput;
     use crate::worker::WorkerError;
+
+    #[test]
+    fn decide_close_does_nothing_when_neither_close_nor_quit_is_requested() {
+        assert_eq!(decide_close(false, false), CloseDecision::DoNothing);
+    }
+
+    #[test]
+    fn decide_close_minimizes_on_a_plain_close_request() {
+        assert_eq!(decide_close(true, false), CloseDecision::Minimize);
+    }
+
+    #[test]
+    fn decide_close_initiates_quit_when_the_tray_quit_item_fired() {
+        assert_eq!(decide_close(false, true), CloseDecision::InitiateQuit);
+    }
+
+    #[test]
+    fn decide_close_prefers_quit_over_minimize_when_both_are_set() {
+        assert_eq!(decide_close(true, true), CloseDecision::InitiateQuit);
+    }
 
     #[test]
     fn rotation_segment_index_covers_all_four_states_in_0_90_180_270_order() {

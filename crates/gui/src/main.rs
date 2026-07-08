@@ -11,6 +11,7 @@ mod menu;
 mod preview;
 mod sidebar;
 mod theme;
+mod tray;
 mod widgets;
 mod worker;
 

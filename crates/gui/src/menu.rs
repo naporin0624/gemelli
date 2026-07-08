@@ -5,7 +5,7 @@
 //! every target; only the `Menu::init_for_nsapp` call inside `build_app_menu` —
 //! which installs the menu as the app's NSApp main menu — is macOS-only.
 
-use muda::{AboutMetadata, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+use muda::{AboutMetadata, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
 /// What the running app should do in response to a menu activation. `About` and
 /// `Quit` are native `PredefinedMenuItem`s handled entirely by the OS (or by muda
@@ -58,16 +58,14 @@ pub struct AppMenu {
 }
 
 impl AppMenu {
-    /// Drains every menu activation queued since the last poll and maps it to a
-    /// `MenuAction`. Never blocks (`try_recv`) — safe to call once per frame.
-    pub fn poll_actions(&self) -> Vec<MenuAction> {
-        let mut actions = Vec::new();
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            if let Some(action) = action_for(event.id(), &self.licenses_id) {
-                actions.push(action);
-            }
-        }
-        actions
+    /// Maps a fired `MenuEvent`'s id to this menu's `MenuAction`, if any.
+    /// Drained via `app.rs`'s single `poll_native_events` — a custom
+    /// `MenuEvent::set_event_handler` (installed once in `GemelliApp::new` so
+    /// the app menu and the tray menu share one event channel) replaces muda's
+    /// default receiver, so polling `MenuEvent::receiver()` here directly would
+    /// see nothing.
+    pub fn action_for(&self, id: &MenuId) -> Option<MenuAction> {
+        action_for(id, &self.licenses_id)
     }
 }
 
