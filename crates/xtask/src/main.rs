@@ -5,6 +5,7 @@ use std::{
 
 use clap::{Parser, Subcommand};
 
+mod bundle;
 mod license_entry;
 mod merge;
 mod normalize;
