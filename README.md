@@ -197,3 +197,18 @@ fetched and built locally per the Setup steps above.
 The GUI embeds [LINE Seed JP](https://github.com/line/seed) (SIL Open Font License 1.1),
 fetched at build time by `scripts/fetch-fonts.sh` — see
 [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No font file is committed to this repository.
+
+## License checks
+
+This repo enforces a permissive-only license policy on its Cargo dependency graph and keeps a
+generated third-party license manifest in sync with `Cargo.lock`. Both run in CI on every push
+and pull request; neither runs in the pre-commit hook (too heavy for every commit).
+
+```bash
+# Verify every dependency's license is on the allow list (`deny.toml`).
+cargo deny check licenses
+
+# Regenerate crates/gui/assets/third-party-licenses.json and THIRD-PARTY-NOTICES after adding
+# or removing a dependency, then commit the result.
+cargo xtask gen-licenses
+```
