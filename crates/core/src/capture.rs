@@ -26,9 +26,23 @@ pub enum CaptureError {
     FormatUnsupported { format: String },
 }
 
+/// Converts tightly-packed RGB8 to tightly-packed BGRA8 with opaque alpha.
+#[allow(dead_code)]
+fn rgb_to_bgra(rgb: &[u8], width: u32, height: u32) -> Vec<u8> {
+    let pixel_count =
+        usize::try_from(width).unwrap_or(0).saturating_mul(usize::try_from(height).unwrap_or(0));
+    let mut bgra = Vec::with_capacity(pixel_count.saturating_mul(4));
+
+    for pixel in rgb.chunks_exact(3) {
+        bgra.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+    }
+
+    bgra
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CaptureError, CaptureSource, DeviceInfo};
+    use super::{CaptureError, CaptureSource, DeviceInfo, rgb_to_bgra};
     use crate::frame::Frame;
 
     struct RecordingSource {
@@ -65,5 +79,17 @@ mod tests {
 
         assert_eq!(info.index, 2);
         assert_eq!(info.name, "Logi C920");
+    }
+
+    #[test]
+    fn rgb_to_bgra_swizzles_channels_and_adds_opaque_alpha() {
+        let rgb = vec![
+            10, 20, 30, // pixel (0,0): R=10 G=20 B=30
+            40, 50, 60, // pixel (1,0): R=40 G=50 B=60
+        ];
+
+        let bgra = rgb_to_bgra(&rgb, 2, 1);
+
+        assert_eq!(bgra, vec![30, 20, 10, 255, 60, 50, 40, 255]);
     }
 }
