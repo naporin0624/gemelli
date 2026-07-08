@@ -34,7 +34,6 @@ pub fn cargo_build_target_args(package: &str, target: &str) -> Vec<OsString> {
 
 /// `hdiutil create -volname <volume> -srcfolder <srcfolder> -ov -format UDZO <output>` —
 /// packages a folder (the `.app` bundle) into a compressed, overwrite-if-exists `.dmg`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn hdiutil_create_args(volume: &str, srcfolder: &Path, output: &Path) -> Vec<OsString> {
     vec![
         OsString::from("create"),
@@ -46,6 +45,18 @@ pub fn hdiutil_create_args(volume: &str, srcfolder: &Path, output: &Path) -> Vec
         OsString::from("-format"),
         OsString::from("UDZO"),
         output.as_os_str().to_os_string(),
+    ]
+}
+
+/// `tar czf <output> -C <chdir> <entry>` — archives `entry` (a directory name relative to
+/// `chdir`) without embedding `chdir`'s own absolute path in the tarball.
+pub fn tar_czf_args(output: &Path, chdir: &Path, entry: &str) -> Vec<OsString> {
+    vec![
+        OsString::from("czf"),
+        output.as_os_str().to_os_string(),
+        OsString::from("-C"),
+        chdir.as_os_str().to_os_string(),
+        OsString::from(entry),
     ]
 }
 
@@ -127,6 +138,25 @@ mod tests {
                 OsString::from("-format"),
                 OsString::from("UDZO"),
                 OsString::from("target/dist/gemelli-0.2.0-macos.dmg"),
+            ]
+        );
+    }
+
+    #[test]
+    fn tar_czf_args_chdirs_before_naming_the_entry() {
+        let output = PathBuf::from("target/dist/gemelli-0.2.0-macos-universal.tar.gz");
+        let chdir = PathBuf::from("target/dist");
+
+        let args = tar_czf_args(&output, &chdir, "gemelli-0.2.0-macos-universal");
+
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("czf"),
+                OsString::from("target/dist/gemelli-0.2.0-macos-universal.tar.gz"),
+                OsString::from("-C"),
+                OsString::from("target/dist"),
+                OsString::from("gemelli-0.2.0-macos-universal"),
             ]
         );
     }

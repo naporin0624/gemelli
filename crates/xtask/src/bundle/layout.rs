@@ -29,7 +29,6 @@ impl AppBundlePaths {
 }
 
 /// Directory name for a CLI distribution tarball's contents, e.g. `gemelli-0.2.0-macos-universal`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn tarball_dir_name(version: &str) -> String {
     format!("gemelli-{version}-macos-universal")
 }

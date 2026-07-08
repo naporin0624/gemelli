@@ -55,6 +55,8 @@ enum Commands {
     },
     /// Assemble a distributable gemelli.app at target/dist/gemelli.app.
     Bundle,
+    /// Package the .app into a .dmg and the CLI into a .tar.gz, both under target/dist/.
+    Dist,
 }
 
 struct Artifacts {
@@ -148,8 +150,11 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Commands::GenLicenses { check } => gen_licenses(check),
-        Commands::Bundle => bundle::bundle(&project_root()).map(|app_path| {
-            println!("built {}", app_path.display());
+        Commands::Bundle => bundle::bundle(&project_root()).map(|output| {
+            println!("built {}", output.app_path.display());
+        }),
+        Commands::Dist => bundle::dist(&project_root()).map(|()| {
+            println!("wrote dist artifacts to {}", project_root().join("target/dist").display());
         }),
     };
 
