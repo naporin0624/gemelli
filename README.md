@@ -63,6 +63,16 @@ Spout on Windows defined as a trait only (not yet implemented). Sister tool of
    cargo build --workspace
    ```
 
+### Windows (Spout)
+
+Fetch the Spout2 SDK (compiled into `gemelli-spout` at build time):
+
+    ./scripts/fetch-spout.sh
+
+Requires the MSVC C++ toolchain (Visual Studio Build Tools, `x86_64-pc-windows-msvc`).
+Then build/run as usual, e.g. `cargo run -p gemelli-cli -- --list-devices`.
+Publishing appears as a Spout sender named by `--server-name` (default `gemelli`).
+
 ## CLI usage
 
 ```
@@ -182,6 +192,14 @@ client installed and are **not** automated.
 - [ ] Close the GUI window: the process exits promptly (no hang) and the Syphon server
       disappears from the client's list (clean publisher drop, matching the CLI's Ctrl+C
       behavior).
+
+### Windows / Spout
+
+- [ ] **Windows / Spout:** run `gemelli` against a real camera, open a Spout
+  receiver (e.g. the Spout `SpoutReceiver` demo or OBS with the Spout2 source),
+  and confirm the `gemelli` sender shows the webcam. Verify colours are correct
+  (BGRA, not channel-swapped), the image is upright, and rotate/flip/crop/scale
+  are reflected. Repeat via `gemelli-gui`.
 
 ## License
 
