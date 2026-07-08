@@ -1522,6 +1522,7 @@ dependencies = [
  "egui",
  "gemelli-core",
  "gemelli-syphon",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

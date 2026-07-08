@@ -6,6 +6,7 @@ mod app;
 mod fps_meter;
 mod preview;
 mod theme;
+mod worker;
 
 fn main() -> ExitCode {
     let options = eframe::NativeOptions {
