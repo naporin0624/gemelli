@@ -1,3 +1,4 @@
+use nokhwa::utils::{CameraIndex, CameraInfo};
 use thiserror::Error;
 
 use crate::frame::Frame;
@@ -40,9 +41,31 @@ fn rgb_to_bgra(rgb: &[u8], width: u32, height: u32) -> Vec<u8> {
     bgra
 }
 
+#[allow(dead_code)]
+fn index_number(index: &CameraIndex) -> u32 {
+    index.as_index().unwrap_or(0)
+}
+
+#[allow(dead_code)]
+fn to_device_info(info: &CameraInfo) -> DeviceInfo {
+    DeviceInfo { index: index_number(info.index()), name: info.human_name() }
+}
+
+#[allow(dead_code)]
+fn devices_from(infos: Vec<CameraInfo>) -> Result<Vec<DeviceInfo>, CaptureError> {
+    if infos.is_empty() {
+        return Err(CaptureError::NoDevices);
+    }
+
+    Ok(infos.iter().map(to_device_info).collect())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{CaptureError, CaptureSource, DeviceInfo, rgb_to_bgra};
+    use super::{
+        CaptureError, CaptureSource, DeviceInfo, devices_from, index_number, rgb_to_bgra,
+        to_device_info,
+    };
     use crate::frame::Frame;
 
     struct RecordingSource {
@@ -91,5 +114,58 @@ mod tests {
         let bgra = rgb_to_bgra(&rgb, 2, 1);
 
         assert_eq!(bgra, vec![30, 20, 10, 255, 60, 50, 40, 255]);
+    }
+
+    #[test]
+    fn index_number_reads_numeric_index() {
+        let index = nokhwa::utils::CameraIndex::Index(3);
+
+        assert_eq!(index_number(&index), 3);
+    }
+
+    #[test]
+    fn index_number_falls_back_to_zero_for_non_numeric_index() {
+        let index = nokhwa::utils::CameraIndex::String("ipcam-1".to_string());
+
+        assert_eq!(index_number(&index), 0);
+    }
+
+    #[test]
+    fn to_device_info_copies_index_and_name() {
+        let info = nokhwa::utils::CameraInfo::new(
+            "Logi C920",
+            "USB Video Class",
+            "",
+            nokhwa::utils::CameraIndex::Index(1),
+        );
+
+        let device = to_device_info(&info);
+
+        assert_eq!(device, DeviceInfo { index: 1, name: "Logi C920".to_string() });
+    }
+
+    #[test]
+    fn devices_from_empty_list_is_no_devices() {
+        let result = devices_from(vec![]);
+
+        assert!(matches!(result, Err(CaptureError::NoDevices)));
+    }
+
+    #[test]
+    fn devices_from_maps_every_entry() {
+        let infos = vec![
+            nokhwa::utils::CameraInfo::new("Cam A", "", "", nokhwa::utils::CameraIndex::Index(0)),
+            nokhwa::utils::CameraInfo::new("Cam B", "", "", nokhwa::utils::CameraIndex::Index(1)),
+        ];
+
+        let devices = devices_from(infos).expect("non-empty list maps");
+
+        assert_eq!(
+            devices,
+            vec![
+                DeviceInfo { index: 0, name: "Cam A".to_string() },
+                DeviceInfo { index: 1, name: "Cam B".to_string() },
+            ]
+        );
     }
 }
