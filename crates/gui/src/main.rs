@@ -1,5 +1,28 @@
-//! GUI entry point placeholder for the webcam -> Spout/Syphon sharing tool.
+//! GUI entry point for the webcam -> Spout/Syphon sharing tool.
 
-fn main() {
-    println!("gemelli-gui: not yet implemented");
+use std::process::ExitCode;
+
+mod app;
+
+fn main() -> ExitCode {
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([1100.0, 700.0])
+            .with_title("gemelli"),
+        ..Default::default()
+    };
+
+    let result = eframe::run_native(
+        "gemelli",
+        options,
+        Box::new(|cc| Ok(Box::new(app::GemelliApp::new(cc)))),
+    );
+
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(reason) => {
+            eprintln!("gemelli-gui failed to run: {reason}");
+            ExitCode::FAILURE
+        }
+    }
 }

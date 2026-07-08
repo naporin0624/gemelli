@@ -10,3 +10,9 @@ workspace = true
 
 [dependencies]
 gemelli-core = { path = "../core" }
+eframe = { workspace = true }
+egui = { workspace = true }
+arc-swap = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gemelli-syphon = { path = "../syphon" }
