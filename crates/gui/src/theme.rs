@@ -69,11 +69,8 @@ pub mod tokens {
     /// text (hyperlinks, the publishing label), so it is proved against the
     /// stricter 4.5:1 normal-text threshold.
     pub const ACCENT: Color32 = Color32::from_rgb(57, 150, 255);
-    /// Hover-fill only — Cannelloni `neon.blueHover` (oklch 0.650 0.235 260). Not
-    /// yet consumed: applying this to `Visuals::widgets.hovered` fills is future
-    /// widget-hover styling work, out of this task's scope — `allow(dead_code)`
-    /// until that call site exists.
-    #[allow(dead_code)]
+    /// Hover-fill only — Cannelloni `neon.blueHover` (oklch 0.650 0.235 260). Consumed by
+    /// `widgets::action_button`'s hover state.
     pub const ACCENT_HOVER: Color32 = Color32::from_rgb(39, 133, 255);
     /// Slider-fill only — Cannelloni `neon.cyan` (oklch 0.820 0.130 200). Not yet
     /// consumed: no slider exists in the GUI yet — `allow(dead_code)` until one

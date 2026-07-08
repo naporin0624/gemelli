@@ -10,7 +10,6 @@ use crate::theme;
 /// integer type that converts to `f32` losslessly (`f32`'s 24-bit mantissa can't represent every
 /// `u32`), and no segmented control here ever has anywhere near `u16::MAX` cells, so the
 /// `unwrap_or` clamp never actually triggers.
-#[cfg_attr(not(test), allow(dead_code))]
 fn count_to_f32(count: usize) -> f32 {
     f32::from(u16::try_from(count).unwrap_or(u16::MAX))
 }
@@ -18,7 +17,6 @@ fn count_to_f32(count: usize) -> f32 {
 /// Splits `total_width` into `count` equal-ish cells, left to right. Every cell gets
 /// `floor(total_width / count)` except the last, which absorbs whatever remains — so the sum of
 /// cell widths always equals `total_width` exactly, with no gap or overhang at the right edge.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn cell_bounds(total_width: f32, count: usize) -> Vec<(f32, f32)> {
     if count == 0 {
         return Vec::new();
@@ -40,7 +38,6 @@ pub(crate) fn cell_bounds(total_width: f32, count: usize) -> Vec<(f32, f32)> {
 /// index. Offsets at or past a cell boundary belong to the *next* cell (so a boundary exactly on
 /// a click never picks the wrong side of it — see the boundary test below); offsets before the
 /// first cell or past the last cell clamp to the nearest end instead of panicking or wrapping.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn cell_at(x_offset: f32, total_width: f32, count: usize) -> usize {
     if count == 0 {
         return 0;
@@ -61,7 +58,6 @@ pub(crate) fn cell_at(x_offset: f32, total_width: f32, count: usize) -> usize {
 /// design doc's cell order). Paired with `flip_from_segment_index` below for the round trip the
 /// FLIP control needs every frame: read the index the user clicked, turn it back into the (h, v)
 /// pair `build_transform` already expects.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn flip_segment_index(h: bool, v: bool) -> usize {
     match (h, v) {
         (false, false) => 0,
@@ -74,7 +70,6 @@ pub(crate) fn flip_segment_index(h: bool, v: bool) -> usize {
 /// Inverse of `flip_segment_index`. Any index of 3 or greater (there is no such cell, but
 /// `segmented`'s `selected` is a plain `usize` with no compile-time bound) clamps to H+V rather
 /// than panicking.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn flip_from_segment_index(index: usize) -> (bool, bool) {
     match index {
         0 => (false, false),
@@ -88,7 +83,6 @@ pub(crate) fn flip_from_segment_index(index: usize) -> (bool, bool) {
 /// letter-spacing control, so the "brow label" look from the mockup is approximated with
 /// uppercasing + a small size + `TEXT_SUBTLE` instead. Uppercasing happens inside this function —
 /// callers pass normal-case text ("Device") and don't need to know the visual convention.
-#[allow(dead_code)]
 pub(crate) fn group_label(ui: &mut egui::Ui, text: &str) {
     ui.label(egui::RichText::new(text.to_uppercase()).size(11.0).color(theme::tokens::TEXT_SUBTLE));
 }
@@ -104,7 +98,6 @@ pub(crate) fn group_label(ui: &mut egui::Ui, text: &str) {
 /// would otherwise assign this call site) so this control's identity survives if the surrounding
 /// UI's widget order shifts frame-to-frame — e.g. the CROP numeric row below appearing/
 /// disappearing changes every later auto-id in `controls_ui`, but not an explicitly salted one.
-#[allow(dead_code)]
 pub(crate) fn segmented(
     ui: &mut egui::Ui,
     id_salt: impl std::hash::Hash + std::fmt::Debug,
@@ -181,7 +174,6 @@ pub(crate) fn segmented(
 /// the same inverted-selection color pairing `segmented`'s selected cell uses. Painted directly
 /// (not via `egui::Button`) so the hover fill can use `ACCENT_HOVER` specifically rather than
 /// egui's ambient `visuals.widgets.hovered` styling.
-#[allow(dead_code)]
 pub(crate) fn action_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
     let width = ui.available_width();
     let height = 44.0;

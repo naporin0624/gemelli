@@ -2,7 +2,7 @@
 //! `SharedState` or `WorkerHandle` directly; `app.rs` owns all side effects.
 
 use gemelli_core::capture::DeviceInfo;
-use gemelli_core::transform::{CropRect, Rotation, ScaleSpec};
+use gemelli_core::transform::{CropRect, ScaleSpec};
 
 const SCALE_FACTOR_MIN: f64 = 0.1;
 const SCALE_FACTOR_MAX: f64 = 2.0;
@@ -37,14 +37,17 @@ pub(crate) fn scale_from_input(input: ScaleInput) -> Option<ScaleSpec> {
     }
 }
 
-/// Device combo box. Returns `true` if the selection changed this frame.
+/// Device combo box, sized to `width` so the caller can reserve a fixed lane for the refresh
+/// button beside it. Returns `true` if the selection changed this frame.
 pub(crate) fn device_panel(
     ui: &mut egui::Ui,
     devices: &[DeviceInfo],
     selected: &mut usize,
+    width: f32,
 ) -> bool {
     let previous = *selected;
     egui::ComboBox::from_id_salt("device_select")
+        .width(width)
         .selected_text(devices.get(*selected).map_or("No devices", |d| d.name.as_str()))
         .show_ui(ui, |ui| {
             for (index, device) in devices.iter().enumerate() {
@@ -55,82 +58,43 @@ pub(crate) fn device_panel(
 }
 
 pub(crate) fn refresh_button(ui: &mut egui::Ui) -> bool {
-    ui.button("Refresh").clicked()
+    ui.button("\u{27f3}").clicked()
 }
 
-/// 2x2 segmented rotation selector: `(0)(90)` / `(180)(270)`. Returns `true` if the selection
-/// changed this frame.
-pub(crate) fn rotate_panel(ui: &mut egui::Ui, rotation: &mut Rotation) -> bool {
-    let previous = *rotation;
-    let choices = [
-        (Rotation::R0, "0"),
-        (Rotation::R90, "90"),
-        (Rotation::R180, "180"),
-        (Rotation::R270, "270"),
-    ];
-    egui::Grid::new("rotate_grid").num_columns(2).show(ui, |ui| {
-        for (index, (value, label)) in choices.into_iter().enumerate() {
-            if ui.selectable_label(*rotation == value, label).clicked() {
-                *rotation = value;
-            }
-            if index % 2 == 1 {
-                ui.end_row();
-            }
-        }
-    });
-    *rotation != previous
-}
-
-/// Independent h/v toggle buttons. Returns `true` if either changed this frame.
-pub(crate) fn flip_panel(ui: &mut egui::Ui, flip_h: &mut bool, flip_v: &mut bool) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        changed |= ui.toggle_value(flip_h, "h").changed();
-        changed |= ui.toggle_value(flip_v, "v").changed();
-    });
-    changed
-}
-
-/// Mode radio row (Off / Factor / WxH) + the matching value widget. Returns `true` if the mode
-/// or the value changed this frame.
-pub(crate) fn scale_panel(ui: &mut egui::Ui, scale_input: &mut ScaleInput) -> bool {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum Mode {
-        Off,
-        Factor,
-        Exact,
+/// Scale widget's mode as a segmented-control index, in the `off / factor / W×H` cell order the
+/// design doc specifies.
+pub(crate) fn scale_mode_index(input: ScaleInput) -> usize {
+    match input {
+        ScaleInput::Off => 0,
+        ScaleInput::Factor(_) => 1,
+        ScaleInput::Exact { .. } => 2,
     }
+}
 
-    fn mode_of(input: ScaleInput) -> Mode {
-        match input {
-            ScaleInput::Off => Mode::Off,
-            ScaleInput::Factor(_) => Mode::Factor,
-            ScaleInput::Exact { .. } => Mode::Exact,
-        }
-    }
-
-    let previous_mode = mode_of(*scale_input);
-    let mut mode = previous_mode;
-    ui.horizontal(|ui| {
-        ui.radio_value(&mut mode, Mode::Off, "Off");
-        ui.radio_value(&mut mode, Mode::Factor, "Factor");
-        ui.radio_value(&mut mode, Mode::Exact, "WxH");
-    });
-
-    *scale_input = match mode {
-        Mode::Off => ScaleInput::Off,
-        Mode::Factor => match *scale_input {
+/// Inverse of `scale_mode_index`, applied against the *previous* `ScaleInput` rather than
+/// producing a bare default: re-selecting the mode already active is a no-op (its numeric value
+/// is preserved), and only switching mode away-and-back resets the value, so a user nudging the
+/// segmented control back and forth doesn't lose an in-progress factor/WxH edit.
+pub(crate) fn scale_input_for_mode_index(index: usize, previous: ScaleInput) -> ScaleInput {
+    match index {
+        0 => ScaleInput::Off,
+        1 => match previous {
             ScaleInput::Factor(factor) => ScaleInput::Factor(factor),
             ScaleInput::Off | ScaleInput::Exact { .. } => ScaleInput::Factor(1.0),
         },
-        Mode::Exact => match *scale_input {
+        _ => match previous {
             ScaleInput::Exact { width, height } => ScaleInput::Exact { width, height },
             ScaleInput::Off | ScaleInput::Factor(_) => {
                 ScaleInput::Exact { width: 960, height: 540 }
             }
         },
-    };
+    }
+}
 
+/// The scale value widget only (slider for Factor, W/H drag fields for Exact, nothing for Off) —
+/// the mode itself is chosen by the SCALE segmented control in `app.rs`, not here. Returns `true`
+/// if the value changed this frame.
+pub(crate) fn scale_value_panel(ui: &mut egui::Ui, scale_input: &mut ScaleInput) -> bool {
     let mut value_edited = false;
     match scale_input {
         ScaleInput::Off => {}
@@ -146,66 +110,32 @@ pub(crate) fn scale_panel(ui: &mut egui::Ui, scale_input: &mut ScaleInput) -> bo
             });
         }
     }
-
-    mode != previous_mode || value_edited
+    value_edited
 }
 
-/// Server-name text field. Returns `true` only when the field loses focus (not on every
-/// keystroke) — restarting the capture thread per keystroke would tear down and recreate the
-/// Syphon server dozens of times while the user is still typing.
+/// Server-name text field, full width. Returns `true` only when the field loses focus (not on
+/// every keystroke) — restarting the capture thread per keystroke would tear down and recreate
+/// the Syphon server dozens of times while the user is still typing.
 pub(crate) fn server_name_panel(ui: &mut egui::Ui, server_name: &mut String) -> bool {
-    ui.text_edit_singleline(server_name).lost_focus()
+    ui.add(egui::TextEdit::singleline(server_name).desired_width(f32::INFINITY)).lost_focus()
 }
 
-/// Start/Stop button. `running` is computed by the caller (`WorkerHandle::is_running`), since
-/// this module never holds a `WorkerHandle`. Returns `true` if clicked.
-pub(crate) fn transport_button(ui: &mut egui::Ui, running: bool) -> bool {
-    let label = if running { "Stop" } else { "Start" };
-    ui.button(label).clicked()
-}
-
-/// What the crop panel's buttons/fields did this frame. Exhaustively matched by `app.rs` — no
-/// `_` arm, so a new action here forces the call site to decide what it means instead of
-/// silently doing nothing.
+/// What the crop numeric row did this frame. Exhaustively matched by `app.rs` — no `_` arm, so a
+/// new action here forces the call site to decide what it means instead of silently doing
+/// nothing. Creating/clearing the crop rect itself is decided by `app.rs` from the CROP
+/// segmented control directly (see `controls_ui`), not by this function.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CropAction {
     None,
-    ToggleEdit,
-    Add,
-    Clear,
     Edited(CropRect),
 }
 
-/// Crop controls: Edit/Done toggle, Add/Clear crop, and (when a crop exists) a W/H/X/Y numeric
-/// row. The numeric fields and the on-screen drag rect (Task 7's `preview_ui` addition) are kept
-/// in sync purely by both reading `self.crop` fresh every frame in `app.rs` — there is no
-/// separate "pending edit" state to desync.
-pub(crate) fn crop_panel(ui: &mut egui::Ui, crop: Option<CropRect>, editing: bool) -> CropAction {
-    let mut action = CropAction::None;
-
-    ui.horizontal(|ui| {
-        let edit_label = if editing { "Done" } else { "Edit crop" };
-        if ui.button(edit_label).clicked() {
-            action = CropAction::ToggleEdit;
-        }
-        match crop {
-            Some(_) => {
-                if ui.button("Clear crop").clicked() {
-                    action = CropAction::Clear;
-                }
-            }
-            None => {
-                if ui.button("Add crop").clicked() {
-                    action = CropAction::Add;
-                }
-            }
-        }
-    });
-
-    let Some(mut rect) = crop else {
-        return action;
-    };
-
+/// Crop numeric row: a W/H/X/Y `DragValue` grid for `rect`. Only rendered by `app.rs` while the
+/// CROP segmented control is on "edit…" — the rect always exists by the time this is called. The
+/// numeric fields and the on-screen drag rect (`preview_ui`'s crop overlay) are kept in sync
+/// purely by both reading `self.crop` fresh every frame in `app.rs` — there is no separate
+/// "pending edit" state to desync.
+pub(crate) fn crop_panel(ui: &mut egui::Ui, mut rect: CropRect) -> CropAction {
     let mut edited = false;
     ui.horizontal(|ui| {
         edited |= ui.add(egui::DragValue::new(&mut rect.width).prefix("w:")).changed();
@@ -215,18 +145,15 @@ pub(crate) fn crop_panel(ui: &mut egui::Ui, crop: Option<CropRect>, editing: boo
         edited |= ui.add(egui::DragValue::new(&mut rect.x).prefix("x:")).changed();
         edited |= ui.add(egui::DragValue::new(&mut rect.y).prefix("y:")).changed();
     });
-    if edited {
-        action = CropAction::Edited(rect);
-    }
 
-    action
+    if edited { CropAction::Edited(rect) } else { CropAction::None }
 }
 
 #[cfg(test)]
 mod tests {
     use gemelli_core::transform::ScaleSpec;
 
-    use super::{ScaleInput, scale_from_input};
+    use super::{ScaleInput, scale_from_input, scale_input_for_mode_index, scale_mode_index};
 
     #[test]
     fn scale_from_input_off_is_none() {
@@ -261,6 +188,47 @@ mod tests {
         assert_eq!(
             scale_from_input(ScaleInput::Exact { width: 960, height: 540 }),
             Some(ScaleSpec::Exact { width: 960, height: 540 })
+        );
+    }
+
+    #[test]
+    fn scale_mode_index_covers_all_three_states_in_off_factor_exact_order() {
+        assert_eq!(scale_mode_index(ScaleInput::Off), 0);
+        assert_eq!(scale_mode_index(ScaleInput::Factor(0.5)), 1);
+        assert_eq!(scale_mode_index(ScaleInput::Exact { width: 10, height: 20 }), 2);
+    }
+
+    #[test]
+    fn scale_input_for_mode_index_switching_to_off_discards_the_value() {
+        assert_eq!(scale_input_for_mode_index(0, ScaleInput::Factor(0.5)), ScaleInput::Off);
+    }
+
+    #[test]
+    fn scale_input_for_mode_index_reselecting_factor_preserves_its_value() {
+        assert_eq!(
+            scale_input_for_mode_index(1, ScaleInput::Factor(0.75)),
+            ScaleInput::Factor(0.75)
+        );
+    }
+
+    #[test]
+    fn scale_input_for_mode_index_switching_to_factor_from_elsewhere_defaults_to_one() {
+        assert_eq!(scale_input_for_mode_index(1, ScaleInput::Off), ScaleInput::Factor(1.0));
+    }
+
+    #[test]
+    fn scale_input_for_mode_index_reselecting_exact_preserves_its_dims() {
+        assert_eq!(
+            scale_input_for_mode_index(2, ScaleInput::Exact { width: 640, height: 480 }),
+            ScaleInput::Exact { width: 640, height: 480 }
+        );
+    }
+
+    #[test]
+    fn scale_input_for_mode_index_switching_to_exact_from_elsewhere_defaults_to_960x540() {
+        assert_eq!(
+            scale_input_for_mode_index(2, ScaleInput::Off),
+            ScaleInput::Exact { width: 960, height: 540 }
         );
     }
 }
