@@ -144,7 +144,10 @@ impl NokhwaSource {
     /// Tries each candidate format in order (see `format_candidates`), opening the
     /// camera with the first one that succeeds. If every candidate fails, the last
     /// attempt's error is reported since it best reflects the final, most-relaxed
-    /// request that the camera still refused.
+    /// request that the camera still refused. Once open, it switches to a
+    /// high-frame-rate MJPEG format when available (see `select_mjpeg_format`)
+    /// before starting the stream — best-effort, so a camera that cannot
+    /// enumerate or refuses the switch keeps the format it opened with.
     pub fn open(index: u32, requested_fps: Option<u32>) -> Result<Self, CaptureError> {
         let mut attempts = format_candidates(requested_fps).into_iter();
         let Some(mut format_type) = attempts.next() else {
