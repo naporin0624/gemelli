@@ -23,9 +23,17 @@ fn main() -> ExitCode {
     // the smallest default that still shows a full-aspect preview with no slack. Min
     // height instead leaves just the >=120px preview floor (228 + 120 = 348, rounded to
     // 350), which stays below the initial height at every width.
+    // The red close button is disabled (greyed out): eframe cannot reliably cancel a
+    // root-viewport close while the window is minimized/not-visible (it skips `App::ui`,
+    // and thus any `CancelClose`, on non-visible frames), so intercepting the close to
+    // "minimize instead of quit" leaked an occasional real quit after a minimize→restore
+    // cycle. Disabling the close button removes that quit path entirely: the window is
+    // minimized with the native yellow button or the tray, and the app quits only from the
+    // tray's "Quit gemelli", the Dock, or Cmd+Q (all of which go through `[NSApp terminate:]`).
     let mut viewport = eframe::egui::ViewportBuilder::default()
         .with_inner_size([360.0, 431.0])
         .with_min_inner_size([300.0, 350.0])
+        .with_close_button(false)
         .with_title("gemelli");
 
     match app_icon() {

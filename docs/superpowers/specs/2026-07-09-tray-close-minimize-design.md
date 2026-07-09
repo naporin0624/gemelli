@@ -5,53 +5,69 @@ Crate: `gemelli-gui` (Rust / eframe 0.35 / egui 0.35)
 
 ## Goal
 
-Make the GUI a tray-resident app. Pressing the window's red close button (×) must
-**not** quit the app — it minimizes the window to the Dock while the process keeps
-running, reachable from a menu-bar (tray) icon. The app quits **only** when the user
-explicitly chooses Quit from the tray menu, or quits via the macOS Dock / Cmd+Q.
+Make the GUI a tray-resident app. Closing the window must **not** quit the app; the process
+keeps running and stays reachable from a menu-bar (tray) icon. The app quits **only** from
+the tray's "Quit gemelli", the macOS Dock, or Cmd+Q.
 
-### Decided behavior (from stakeholder Q&A)
+### Decided behavior
 
 | Question | Decision |
 |---|---|
-| Close (×) button | **Minimize to Dock** (`ViewportCommand::Minimized(true)`), app keeps running |
+| Red close (×) button | **Disabled** (greyed out) — clicking it does nothing; it can never quit |
+| Minimizing the window | The native yellow minimize button (→ Dock) or the tray |
 | Tray menu contents | **Minimal**: `Show gemelli` + `Quit gemelli` |
 | Tray icon left-click | **Open the menu** (macOS standard status-item behavior) |
 | Tray icon appearance | **App color icon** (`assets/tray-icon.png`, 44×44 downscaled from `icon.png`) |
 | Dock icon / activation policy | **Unchanged (Regular)** — Dock icon stays, Dock "Quit" really quits |
 
+### Why the × is disabled instead of intercepted (the load-bearing finding)
+
+The obvious design — intercept the red-button close and send `CancelClose` +
+`Minimized(true)` to minimize instead of quit — **cannot be made reliable in eframe**.
+Verified empirically (winit 0.30.13 / eframe 0.35, driving the real window over the macOS
+Accessibility API and reading eframe's own debug logs):
+
+- eframe evaluates the root-viewport close decision every frame in
+  `epi_integration::update`: if `close_requested` and the app did **not** emit `CancelClose`
+  this frame, it sets `self.close = true` and the process exits.
+- But `App::ui` (where our `CancelClose` would be sent) is guarded by `if is_visible` — it
+  is **skipped on non-visible frames**. After the window has been minimized once, a later
+  `WindowEvent::CloseRequested` is processed on a frame eframe considers not-visible, so
+  `App::ui` (and the `CancelClose`) never runs, yet the close decision does → the app quits.
+- Confirmed reproduction: close → minimize (canceled, OK) → restore → close again logs
+  `Closing root viewport (ViewportCommand::CancelClose was not sent)` with **no** `App::ui`
+  call on that frame → exit. Forcing background repaints only reduced the frequency; it did
+  not eliminate it. (Electron's Cannelloni does this fine because `preventDefault` on the
+  `close` event is visibility-independent — eframe has no equivalent.)
+
+So the robust guarantee "the close button can never quit" is obtained by **disabling the
+close button** via `ViewportBuilder::with_close_button(false)`. There is then no
+`CloseRequested` to intercept, and no App-level close handling at all.
+
 ## Exit-path matrix (the core correctness contract)
 
 ```
-Red (×) button ───► WindowEvent::CloseRequested ─► ALWAYS CancelClose + Minimized(true)
-Cmd+Q / Dock Quit ─► NSApp terminate: ───────────► process exits (never hits close_requested)
-Tray "Quit gemelli" ► stop_worker() ─► std::process::exit(0)  (immediate, frame-independent)
-Tray "Show gemelli" ► Minimized(false) + Focus ─► window restored & brought to front
+Red (×) button ───────► disabled (greyed) ─────────► nothing happens; cannot quit
+Yellow − button ──────► native miniaturize ────────► window minimizes to the Dock
+Tray "Show gemelli" ──► Minimized(false) + Focus ──► window restored & brought to front
+Tray "Quit gemelli" ──► stop_worker() → exit(0) ───► immediate, frame-independent quit
+Cmd+Q / Dock → Quit ──► [NSApp terminate:] ────────► process terminates
 ```
 
-Rationale (verified against winit 0.30.13 / eframe 0.35 source, macOS):
-
-- winit's `windowShouldClose:` — the red-button close and Cmd+W — queues
-  `WindowEvent::CloseRequested`. There is **no** `applicationShouldTerminate:` override in
-  winit, so Cmd+Q and the Dock's "Quit" (muda's `PredefinedMenuItem::quit` → `[NSApp
-  terminate:]`) terminate the process directly via `applicationWillTerminate:` and never
-  emit `CloseRequested`. Intercepting `close_requested` therefore catches the × / Cmd+W
-  **only**; the terminate paths keep quitting with no extra code.
-- The `close_requested` interception is **unconditional** — it always minimizes, never
-  quits. Quitting is not reachable from the close path at all, which is why a second × can
-  never "leak through" to a quit.
-- Tray "Quit" does **not** use `ViewportCommand::Close`. In eframe that command only pushes
-  a `ViewportEvent::Close` that takes effect on a *subsequent* frame (see
-  `egui-winit` `process_viewport_command`); while the tray menu is open the main window is
-  backgrounded and eframe's loop is idle, so that next frame may not run until some later
-  event wakes it — the bug that made both "Quit" and the second "×" appear to need two
-  clicks. Instead the tray "Quit" arm stops the worker (clean camera/Syphon release) and
-  calls `std::process::exit(0)`, which is immediate and independent of frame scheduling.
+Cmd+Q and the Dock's "Quit" go through muda's `PredefinedMenuItem::quit` → `[NSApp
+terminate:]`; winit has no `applicationShouldTerminate:` override, so they terminate
+directly (never emitting `CloseRequested`). Tray "Quit" does **not** use
+`ViewportCommand::Close` (which only takes effect on a subsequent frame that may not run
+while the window is backgrounded); it stops the worker for a clean camera/Syphon release
+and then calls `std::process::exit(0)`.
 
 ## Architecture
 
 ```
 ┌─────────────── GemelliApp (eframe::App) ───────────────┐
+│  main():                                                │
+│   └ ViewportBuilder::with_close_button(false)           │
+│        red × disabled → no CloseRequested ever fires     │
 │  new():                                                 │
 │   ├ build_app_menu()   … existing (About / Quit / Lic)  │
 │   ├ build_tray()       … NEW tray.rs                    │
@@ -61,13 +77,11 @@ Rationale (verified against winit 0.30.13 / eframe 0.35 source, macOS):
 │        calls egui::Context::request_repaint()           │
 │                                                         │
 │  ui() each frame:                                       │
-│   ├ poll_native_events()  drain own rx once →           │
-│   │     menu.action_for(id) | tray.action_for(id)       │
-│   │       TrayAction::Show → Minimized(false) + Focus   │
-│   │       TrayAction::Quit → stop_worker(); exit(0)     │
-│   └ handle_close(close_requested):                       │
-│         if close_requested →                             │
-│           CancelClose + Minimized(true)  (always)        │
+│   └ poll_native_events()  drain own rx once →           │
+│         menu.action_for(id) | tray.action_for(id)       │
+│           TrayAction::Show → Minimized(false) + Focus   │
+│           TrayAction::Quit → stop_worker(); exit(0)     │
+│   (no close interception — the close button is disabled) │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -116,17 +130,9 @@ no fallback needed.
 | `fn decode_icon(&[u8]) -> Result<DecodedIcon, TrayError>` | PNG bytes → RGBA + dims, pure | ✅ unit |
 | `AppTray::action_for(&self, id) -> Option<TrayAction>` | map fired menu id to tray action, pure | ✅ unit |
 
-`app.rs` close handling is a single unconditional method (no pure branch helper needed —
-there is nothing to decide, `close_requested` always means minimize):
-
-```rust
-fn handle_close(&self, ctx, close_requested) {
-    if close_requested {
-        ctx.send_viewport_cmd(ViewportCommand::CancelClose);
-        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
-    }
-}
-```
+There is **no** `app.rs` close handling: `main.rs` disables the close button with
+`ViewportBuilder::with_close_button(false)`, so no `CloseRequested` is ever produced and
+`ui()` needs no close-interception logic.
 
 `AppMenu` gains `action_for(&self, id) -> Option<MenuAction>` (wrapping the existing pure
 free function) so the unified poller can offer each drained event to both menu and tray.
@@ -171,18 +177,21 @@ Unit tests (pure, no NSApp / no event loop):
 - `AppTray::action_for`: show id → `Show`, quit id → `Quit`, foreign id → `None`.
 - `AppMenu::action_for`: unchanged coverage, licenses id → `OpenLicenses`.
 
-`handle_close` (unconditional minimize) and the tray "Quit" `process::exit` arm depend on
-the eframe event loop / macOS window state, so they are covered by the manual verification
-gates below rather than unit tests.
+The disabled close button and the tray "Quit" `process::exit` arm depend on the eframe
+event loop / macOS window state, so they are covered by the manual verification gates below
+rather than unit tests.
 
 ## Verification gates (post-implementation, `/verify` + manual smoke on real app)
 
-1. Red (×) → window minimizes to Dock, process still running, tray icon present.
-2. Cmd+Q **and** Dock right-click → Quit → app actually terminates.
-3. Tray "Quit gemelli" → app terminates (worker stopped).
-4. Tray "Show gemelli" **while minimized** → window restores and comes to front
+1. Red (×) is greyed out; clicking it repeatedly does nothing — the process keeps running
+   and the tray icon stays present. (Verified over the Accessibility API:
+   `AXCloseButton enabled=false`, survives repeated `AXPress`.)
+2. Yellow − button minimizes the window to the Dock.
+3. Cmd+Q **and** Dock right-click → Quit → app actually terminates.
+4. Tray "Quit gemelli" → app terminates (worker stopped).
+5. Tray "Show gemelli" **while minimized** → window restores and comes to front
    (proves the request_repaint wake works while minimized).
-5. `cargo fmt --check`, full `cargo test`, `cargo clippy -D warnings` all green.
+6. `cargo fmt --check`, full `cargo test`, `cargo clippy -D warnings` all green.
 
 ## Out of scope (YAGNI)
 

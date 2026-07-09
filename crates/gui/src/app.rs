@@ -310,22 +310,6 @@ impl GemelliApp {
         }
     }
 
-    /// The window close button (red ×, also Cmd+W) is *always* a minimize, never a
-    /// quit — cancel the in-flight close and minimize to the Dock instead. Quitting
-    /// is deliberately not reachable from here (see `poll_native_events`' `Quit` arm):
-    /// the only exits are the tray's "Quit gemelli" and macOS's own Cmd+Q / Dock →
-    /// Quit, both of which go through `[NSApp terminate:]` and never emit
-    /// `WindowEvent::CloseRequested`, so they bypass this entirely.
-    ///
-    /// `CancelClose` must be sent before `Minimized(true)`: without it eframe lets the
-    /// already-signalled close proceed and terminates the app instead of hiding it.
-    fn handle_close(&self, ctx: &egui::Context, close_requested: bool) {
-        if close_requested {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-        }
-    }
-
     fn refresh_preview(&mut self, ctx: &egui::Context) {
         let raw = self.shared.latest_raw.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let output =
@@ -661,9 +645,6 @@ impl eframe::App for GemelliApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_errors();
         self.poll_native_events(ui.ctx());
-
-        let close_requested = ui.ctx().input(|i| i.viewport().close_requested());
-        self.handle_close(ui.ctx(), close_requested);
 
         self.refresh_preview(ui.ctx());
         self.licenses.show(ui.ctx());
