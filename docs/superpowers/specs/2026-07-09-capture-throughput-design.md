@@ -119,6 +119,19 @@ NokhwaSource::next_frame():
 4. `gemelli 0 --server-name gemelli` を起動 → 交渉フォーマット MJPEG・fps≥30 を確認、
    Spout 受信で映像確認。改善前(YUYV/~5fps)との比較を記録。
 
+## 実測結果(改善後、Windows + StreamCam)
+
+| | Before | After |
+|---|---|---|
+| 交渉フォーマット | YUYV 2304×1296 | **MJPEG 1920×1080** |
+| decode | ~592ms | ~38ms |
+| rgb→bgra | ~157ms(debug) | 高速 swizzle |
+| **実 fps(release, webcam→Spout)** | **~1.2fps** | **~40fps** |
+
+- 受信側(SpoutReceiver)でも `[gemelli] 1920×1080 / fps ~39` を確認。色順(BGRA)正常・上下正立。
+- `opens_camera_as_mjpeg`(実カメラ)で MJPEG 交渉を確認。
+- 目標 ≥30fps を達成(mac/Syphon 相当を上回る)。
+
 ## スコープ外(別タスク)
 
 - capture/publish のマルチスレッド分離 + drain-to-latest(スループット上積み・レイテンシ/鮮度改善)。
