@@ -1,6 +1,6 @@
 {
   "crates/core": "0.2.0",
-  "crates/cli": "0.2.0",
-  "crates/gui": "0.2.0",
-  "crates/syphon": "0.2.0"
+  "crates/cli": "0.2.1",
+  "crates/gui": "0.3.0",
+  "crates/syphon": "0.3.0"
 }
