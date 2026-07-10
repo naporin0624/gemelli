@@ -76,11 +76,12 @@ and then calls `std::process::exit(0)`.
 │        forwards every muda event into our own mpsc AND  │
 │        calls egui::Context::request_repaint()           │
 │                                                         │
-│  ui() each frame:                                       │
+│  logic() each frame (also runs while minimized):        │
 │   └ poll_native_events()  drain own rx once →           │
 │         menu.action_for(id) | tray.action_for(id)       │
 │           TrayAction::Show → Minimized(false) + Focus   │
 │           TrayAction::Quit → stop_worker(); exit(0)     │
+│  ui() paints only                                        │
 │   (no close interception — the close button is disabled) │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -95,13 +96,23 @@ tray naively creates two problems:
 2. **Dead loop while minimized** — egui's `update`/`ui` may not run while the window is
    minimized, so tray menu events would queue but never be applied → tray unresponsive.
 
-**Both are solved by one move:** register a single global
-`muda::MenuEvent::set_event_handler` in `new()` that (a) forwards every event into our own
-`mpsc::Sender<MenuEvent>` and (b) calls `ctx.request_repaint()`. This unifies draining to
-one owned receiver (no stealing) and wakes the event loop on every tray/menu action even
-while minimized. Consequence: `MenuEvent::receiver()` goes silent (the custom handler
-replaces muda's default), so `menu.rs` must stop reading the global receiver — polling
-moves to a single `poll_native_events` in `app.rs`.
+**Both are solved by two moves:**
+
+1. Register a single global `muda::MenuEvent::set_event_handler` in `new()` that (a)
+   forwards every event into our own `mpsc::Sender<MenuEvent>` and (b) calls
+   `ctx.request_repaint()`. This unifies draining to one owned receiver (no stealing) and
+   wakes the event loop on every tray/menu action even while minimized. Consequence:
+   `MenuEvent::receiver()` goes silent (the custom handler replaces muda's default), so
+   `menu.rs` must stop reading the global receiver — polling moves to a single
+   `poll_native_events` in `app.rs`.
+2. Drain that channel from **`App::logic`, not `App::ui`**. Waking the loop is not enough:
+   eframe skips `App::ui` on frames where the window is not visible (minimized), so a poll
+   living in `ui` leaves tray "Show"/"Quit" clicks queued but unprocessed exactly while
+   minimized (verified: neither worked while minimized when polled from `ui`). `App::logic`
+   is documented to run "also when the UI is hidden, but `request_repaint` was called" —
+   the muda handler's repaint request guarantees that. Verified over the Accessibility API:
+   with the poll in `logic`, tray Show restores a minimized window and tray Quit exits in
+   one click while minimized.
 
 ## muda version unification (must-verify)
 

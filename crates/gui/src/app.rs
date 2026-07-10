@@ -640,11 +640,17 @@ impl GemelliApp {
 }
 
 impl eframe::App for GemelliApp {
-    // `logic` (state-only, called before painting) is optional and defaults to a no-op; all of
-    // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
+    // Native menu/tray events are polled here rather than in `ui`: eframe skips `ui` on
+    // frames where the window is not visible (minimized), but still calls `logic` whenever
+    // `request_repaint` was called — which the muda event handler does on every activation.
+    // Polling in `ui` would leave tray "Show"/"Quit" clicks queued but unprocessed exactly
+    // when they matter most: while the window is minimized.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_native_events(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_errors();
-        self.poll_native_events(ui.ctx());
 
         self.refresh_preview(ui.ctx());
         self.licenses.show(ui.ctx());
