@@ -33,7 +33,11 @@ void spout_bridge_destroy(SpoutBridgeHandle* handle);
 //   2 (StagingSse)      - DYNAMIC staging texture, filled with SpoutCopy's
 //                         SSE2 pitch-aware line copier (SpoutCopy::rgba2rgba
 //                         is channel-agnostic, so no swizzle happens even
-//                         though frames are BGRA), then SendTexture.
+//                         though frames are BGRA), then SendTexture. When
+//                         `pitch` is not a multiple of 16 bytes -- the SSE2
+//                         copier issues aligned SIMD loads/stores that fault
+//                         on such rows -- this mode automatically falls back
+//                         to the mode 0 row-by-row memcpy for the copy step.
 // Any other value falls back to mode 0.
 //
 // Returns a staged status code:

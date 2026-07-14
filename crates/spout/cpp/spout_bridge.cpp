@@ -63,6 +63,25 @@ bool ensure_staging(SpoutBridgeHandle* handle, uint32_t width, uint32_t height) 
     return true;
 }
 
+// Row-by-row scalar memcpy into a mapped staging texture. Used directly by
+// mode 0, and as mode 2's automatic fallback (see send_staging_sse) when the
+// source pitch defeats SpoutCopy's SSE2 aligned-load requirement.
+void copy_rows_scalar(const uint8_t* pixels,
+                       void* mapped_data,
+                       uint32_t width,
+                       uint32_t height,
+                       uint32_t pitch,
+                       uint32_t dest_row_pitch) {
+    const uint8_t* src_row = pixels;
+    uint8_t* dst_row = static_cast<uint8_t*>(mapped_data);
+    const size_t copy_width = static_cast<size_t>(width) * 4;
+    for (uint32_t y = 0; y < height; ++y) {
+        memcpy(dst_row, src_row, copy_width);
+        src_row += pitch;
+        dst_row += dest_row_pitch;
+    }
+}
+
 // Mode 0: DYNAMIC staging + row-by-row memcpy + SendTexture.
 int32_t send_staging_row_copy(SpoutBridgeHandle* handle,
                                const uint8_t* pixels,
@@ -79,14 +98,7 @@ int32_t send_staging_row_copy(SpoutBridgeHandle* handle,
         return -4;
     }
 
-    const uint8_t* src_row = pixels;
-    uint8_t* dst_row = static_cast<uint8_t*>(mapped.pData);
-    const size_t copy_width = static_cast<size_t>(width) * 4;
-    for (uint32_t y = 0; y < height; ++y) {
-        memcpy(dst_row, src_row, copy_width);
-        src_row += pitch;
-        dst_row += mapped.RowPitch;
-    }
+    copy_rows_scalar(pixels, mapped.pData, width, height, pitch, mapped.RowPitch);
     handle->context->Unmap(handle->staging, 0);
 
     return handle->sender.SendTexture(handle->staging) ? 0 : -5;
@@ -119,7 +131,23 @@ int32_t send_staging_sse(SpoutBridgeHandle* handle,
         return -4;
     }
 
-    handle->copier.rgba2rgba(pixels, mapped.pData, width, height, pitch, mapped.RowPitch, false);
+    // SpoutCopy::rgba2rgba(..., destPitch, ...) copies one row per call via
+    // CopyPixels -> memcpy_sse2, which issues _mm_load_si128/_mm_stream_si128
+    // -- ALIGNED SSE2 loads/stores that fault (STATUS_ACCESS_VIOLATION) on an
+    // unaligned address, unlike memcpy. Each row starts at `pixels + y *
+    // pitch`; row 0 lines up with the caller's (>=16-byte-aligned) buffer,
+    // but every later row drifts by `pitch % 16` bytes when `pitch` isn't a
+    // multiple of 16. A tight 2458px BGRA row (pitch = 9832, 9832 % 16 == 8)
+    // hits an unaligned load on row 1 onward and crashes; 1920px/3840px rows
+    // (pitch 7680/15360, both multiples of 16) stay aligned and are safe.
+    // Guard on that and fall back to the scalar row copy (mode 0's routine,
+    // which only ever issues ordinary unaligned-safe memcpy) for widths that
+    // would otherwise defeat the SSE2 path.
+    if (pitch % 16 != 0) {
+        copy_rows_scalar(pixels, mapped.pData, width, height, pitch, mapped.RowPitch);
+    } else {
+        handle->copier.rgba2rgba(pixels, mapped.pData, width, height, pitch, mapped.RowPitch, false);
+    }
     handle->context->Unmap(handle->staging, 0);
 
     return handle->sender.SendTexture(handle->staging) ? 0 : -5;

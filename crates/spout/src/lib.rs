@@ -34,7 +34,10 @@ pub enum SendMode {
     /// `SpoutDX::SendTexture`. Production default (see `publish`): fastest
     /// CPU time at 4K — where sustaining 60fps is hardest — and ties
     /// `StagingRowCopy` within noise at 1080p, per the reference
-    /// implementation's benchmarks.
+    /// implementation's benchmarks. The bridge automatically falls back to
+    /// a row-by-row `memcpy` for frames whose row pitch is not a multiple of
+    /// 16 bytes (e.g. odd crop widths), since SpoutCopy's SSE2 path requires
+    /// 16-byte-aligned rows.
     StagingSse,
 }
 
