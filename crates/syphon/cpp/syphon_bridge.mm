@@ -31,6 +31,11 @@ struct SyphonBridgeHandle {
     id<MTLTexture> texture = nil;          // wraps `surface`, keeping it alive
     uint32_t       width = 0;
     uint32_t       height = 0;
+
+    // Most recently committed publish command buffer (ARC-managed, so the
+    // default member initializer is enough — see syphon_bridge_destroy for
+    // why this must be drained before tearing down `server`).
+    id<MTLCommandBuffer> lastCommandBuffer = nil;
 };
 
 // Row-wise copy: the IOSurface's actual stride (page/tile aligned by the
@@ -118,6 +123,21 @@ static bool ensure_cache(SyphonBridgeHandle* h, uint32_t width, uint32_t height)
     return true;
 }
 
+// Adds the shared error-logging completed handler, commits `cmdBuf`, and
+// records it as `h->lastCommandBuffer` so `syphon_bridge_destroy` can wait
+// for this frame's GPU work (and the completed handler above) to finish
+// before tearing down the server. Shared by both publish paths below.
+static void commit_and_track(SyphonBridgeHandle* h, id<MTLCommandBuffer> cmdBuf,
+                              const char* site) {
+    [cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> completed) {
+        if (completed.error) {
+            NSLog(@"[SyphonBridge] %s: publish command buffer error: %@", site, completed.error);
+        }
+    }];
+    [cmdBuf commit];
+    h->lastCommandBuffer = cmdBuf;
+}
+
 // Commits a Syphon publish of the cached texture on a fresh command buffer.
 //
 // Single-buffered on purpose: Syphon blits this texture into its own
@@ -131,12 +151,7 @@ static bool publish_cached(SyphonBridgeHandle* h, uint32_t width, uint32_t heigh
                     onCommandBuffer:cmdBuf
                         imageRegion:NSMakeRect(0, 0, width, height)
                             flipped:YES];
-    [cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> completed) {
-        if (completed.error) {
-            NSLog(@"[SyphonBridge] publish_cached: publish command buffer error: %@", completed.error);
-        }
-    }];
-    [cmdBuf commit];
+    commit_and_track(h, cmdBuf, "publish_cached");
     return true;
 }
 
@@ -189,18 +204,15 @@ static bool send_perframe(SyphonBridgeHandle* h, const uint8_t* pixels,
     // Publish is fire-and-forget: we commit and return immediately.
     // `addCompletedHandler` only logs a GPU-side error asynchronously —
     // callers see success as soon as the command buffer is queued, same
-    // as the reference bridge.
+    // as the reference bridge. (`syphon_bridge_destroy` waits on
+    // `h->lastCommandBuffer` before tearing down the server, so this stays
+    // fire-and-forget from the caller's perspective.)
     id<MTLCommandBuffer> cmdBuf = [h->commandQueue commandBuffer];
     [h->server publishFrameTexture:texture
                     onCommandBuffer:cmdBuf
                         imageRegion:NSMakeRect(0, 0, width, height)
                             flipped:YES];
-    [cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> completed) {
-        if (completed.error) {
-            NSLog(@"[SyphonBridge] send_perframe: publish command buffer error: %@", completed.error);
-        }
-    }];
-    [cmdBuf commit];
+    commit_and_track(h, cmdBuf, "send_perframe");
 
     return true;
 }
@@ -289,6 +301,23 @@ void syphon_bridge_destroy(SyphonBridgeHandle* handle) {
         return;
     }
     @autoreleasepool {
+        // Wait for the last publish's GPU work (and its completed handler)
+        // to finish before touching `server`. Crash evidence (macOS .ips
+        // reports, reproduced locally and on CI): EXC_BREAKPOINT SIGTRAP in
+        // _dispatch_lane_class_dispose <- -[SyphonServerConnectionManager
+        // .cxx_destruct] <- SyphonServer dealloc, always at a publisher-drop
+        // boundary microseconds after the last publish commit. Syphon's
+        // connection manager tears down a dispatch queue in dealloc;
+        // destroying the server while the final publish's GPU work is still
+        // in flight trips that dispose trap. `waitUntilCompleted` is
+        // nil-safe, so this is a no-op if nothing was ever published.
+        // Command buffers submitted to one MTLCommandQueue complete in
+        // submission order, so waiting on only the last buffer also fences
+        // every earlier buffer from `handle->commandQueue` — no need to
+        // track more than one.
+        [handle->lastCommandBuffer waitUntilCompleted];
+        handle->lastCommandBuffer = nil;
+
         release_cache(handle);
         [handle->server stop];
         delete handle; // runs the ARC-synthesized destructor for device/commandQueue/server
