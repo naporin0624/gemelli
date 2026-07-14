@@ -83,14 +83,14 @@ bucatini の `bucatini.iss` を踏襲し、以下を変更:
 ```
 push to main
   └─ release-please job
-       ├─ outputs: release_created, tag_name
-       ├─(release_created == 'true')─▶ build-macos   (macos-15)
-       └─(release_created == 'true')─▶ build-windows (windows-latest)
+       ├─ outputs: gui_release_created, gui_tag_name
+       ├─(gui_release_created == 'true')─▶ build-macos   (macos-15)
+       └─(gui_release_created == 'true')─▶ build-windows (windows-latest)
 ```
 
 - **release-please job** — 既存 release-please.yml の中身をそのまま移設 (`googleapis/release-please-action@v5`、`config-file` / `manifest-file` 指定)。release-please は crate ごとに Release/tag を作るため、job の `outputs` はパス付きキー `steps.release.outputs['crates/gui--release_created']` / `['crates/gui--tag_name']` を `gui_release_created` / `gui_tag_name` にマップする。全アーティファクトはこの `gemelli-gui-v*` Release に添付する。
 - **build-macos job** — 既存 release.yml のステップをそのまま移設 (checkout + submodules → rust-toolchain@1.96.1 → universal2 targets → rust-cache → Syphon.framework ビルド → fetch-fonts → `cargo xtask dist` → `gh release upload`)。
-- **build-windows job** (新規) — checkout (submodules 込み) → rust-toolchain@1.96.1 → rust-cache → `scripts/fetch-fonts.sh` → `scripts/fetch-spout.sh` → `cargo build --release --workspace` → `choco install innosetup` → `cargo xtask dist` → `gh release upload` で `.zip` + `-setup.exe` を添付。
+- **build-windows job** (新規) — checkout (submodules 込み) → rust-toolchain@1.96.1 → rust-cache → `scripts/fetch-fonts.sh` → `scripts/fetch-spout.sh` → `choco install innosetup` → `cargo xtask dist` (この中でビルドも行う) → `gh release upload` で `.zip` + `-setup.exe` を添付。
 - **手動再実行** — `workflow_dispatch` (tag 入力) を残す。release-please job 自体は `if: github.event_name == 'push'` で workflow_dispatch 時はスキップされる。ビルドジョブの `if` は `!cancelled() && (needs.release-please.outputs.gui_release_created == 'true' || github.event_name == 'workflow_dispatch')` として、上流 job がスキップされても `!cancelled()` で実行を継続する。`TAG` は `github.event_name == 'workflow_dispatch' && github.event.inputs.tag || needs.release-please.outputs.gui_tag_name` の三項式で解決する。
 - **課金** — Windows runner はリリース作成時 (release PR マージ時) と手動 dispatch 時のみ消費。PR CI の label-gate 運用 (ci-windows) はそのまま。
 

@@ -92,9 +92,8 @@ Exit codes: `0` clean shutdown (including Ctrl+C) · `1` runtime error (printed 
 
 ### GUI
 
-```bash
-cargo run -p gemelli-gui
-```
+Launch `gemelli.app` (macOS) or the gemelli Start Menu shortcut (Windows) — or run `cargo run -p
+gemelli-gui` from a source checkout.
 
 A sidebar/preview layout (see `docs/superpowers/specs/2026-07-08-gemelli-gui-design.md` for the
 full design) for adjusting transforms live while previewing the camera feed, instead of
@@ -219,7 +218,7 @@ cargo xtask dist
 version from `cargo metadata`. Neither command signs or notarizes the output.
 
 On Windows, `cargo xtask dist` instead writes `gemelli-<version>-windows-x64.zip` and
-`gemelli-<version>-windows-x64-setup.exe` (requires Inno Setup 6; override the compiler
+`gemelli-<version>-windows-x64-setup.exe` (requires Inno Setup 6.3+; override the compiler
 location with the `ISCC_PATH` environment variable).
 
 ## Development
