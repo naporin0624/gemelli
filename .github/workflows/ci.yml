@@ -48,3 +48,30 @@ jobs:
       # "Manual verification checklist" in README.md for the camera/Syphon-client steps.
       - name: cargo test
         run: cargo test --workspace
+
+  check-windows:
+    runs-on: windows-latest
+    name: Lint & Test (Windows)
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # gemelli-gui embeds LINE Seed JP via include_bytes! — see scripts/fetch-fonts.sh.
+      - name: Fetch fonts
+        shell: bash
+        run: ./scripts/fetch-fonts.sh
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Hardware-dependent tests are #[ignore]d and are not run here.
+      - name: cargo test
+        run: cargo test --workspace
