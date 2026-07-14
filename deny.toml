@@ -32,6 +32,11 @@ allow = [
     # (muda -> gtk -> system-deps -> cfg-expr -> target-lexicon). Apache-2.0 with the LLVM
     # exception, which only broadens the plain Apache-2.0 grant — still permissive.
     "Apache-2.0 WITH LLVM-exception",
+    # option-ext, pulled in transitively by tray-icon's Linux-only `dirs` chain
+    # (tray-icon -> dirs -> dirs-sys -> option-ext) and never compiled into the macOS
+    # build (`cargo tree --target aarch64-apple-darwin -i option-ext` finds nothing). Weak
+    # file-level copyleft; carries no obligation for an unmodified, non-shipping dependency.
+    "MPL-2.0",
 ]
 # gemelli-{core,cli,gui,syphon} are all `license = "MIT"` (workspace.package), already covered
 # by the allow list above — no [licenses.private] override is needed.

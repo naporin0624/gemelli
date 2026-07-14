@@ -149,6 +149,13 @@ pub struct GemelliApp {
     /// `None` when `menu::build_app_menu()` failed at startup (see `GemelliApp::new`)
     /// — the app still runs, just without a menu bar.
     menu: Option<crate::menu::AppMenu>,
+    /// `None` when `tray::build_tray()` failed at startup — the app still runs,
+    /// just without a menu-bar tray icon.
+    tray: Option<crate::tray::AppTray>,
+    /// Owned drain point for the single `MenuEvent::set_event_handler` installed
+    /// in `new` (see its doc comment) — replaces muda's own global receiver so
+    /// the app menu and tray menu share one channel with no event stealing.
+    events_rx: mpsc::Receiver<muda::MenuEvent>,
 }
 
 impl GemelliApp {
@@ -163,6 +170,24 @@ impl GemelliApp {
                 None
             }
         };
+        let tray = match crate::tray::build_tray() {
+            Ok(tray) => Some(tray),
+            Err(reason) => {
+                eprintln!("gemelli-gui: failed to build tray icon: {reason}");
+                None
+            }
+        };
+
+        // Single global handler for both the app menu and the tray menu (see the
+        // `events_rx` field doc comment): forwards every activation into our own
+        // channel and wakes the event loop, since egui's own `ui`/`update` may
+        // not run again on its own while the window is minimized.
+        let (events_tx, events_rx) = mpsc::channel();
+        let repaint_ctx = cc.egui_ctx.clone();
+        muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
+            let _ = events_tx.send(event);
+            repaint_ctx.request_repaint();
+        }));
 
         // Loaded unconditionally (even when device enumeration below fails) so `save` always has
         // the real prior config to fall back to — see `saved_config`'s doc comment. Losing this
@@ -219,6 +244,8 @@ impl GemelliApp {
             preview_dims: None,
             last_uploaded: None,
             menu,
+            tray,
+            events_rx,
         }
     }
 
@@ -295,14 +322,40 @@ impl GemelliApp {
         }
     }
 
-    /// Drains this frame's menu activations and applies each one. Exhaustive
-    /// match over `MenuAction` — a new variant added upstream forces this match
-    /// to be revisited instead of silently no-op'ing.
-    fn poll_menu_actions(&mut self, ctx: &egui::Context) {
-        let Some(menu) = &self.menu else { return };
-        for action in menu.poll_actions() {
-            match action {
-                crate::menu::MenuAction::OpenLicenses => self.licenses.request_open(ctx),
+    /// Drains this frame's queued menu/tray activations (from the single
+    /// `events_rx` installed in `new`) and applies each one. Never blocks
+    /// (`try_recv`) — safe to call once per frame.
+    ///
+    /// Each event is offered to both `self.menu` and `self.tray`'s `action_for`
+    /// before either match runs, so both immutable borrows end immediately —
+    /// `action_for` returns an owned `Option`, which is what lets the borrow
+    /// checker allow the subsequent `&mut self` field writes below.
+    fn poll_native_events(&mut self, ctx: &egui::Context) {
+        while let Ok(event) = self.events_rx.try_recv() {
+            let menu_action = self.menu.as_ref().and_then(|m| m.action_for(event.id()));
+            let tray_action = self.tray.as_ref().and_then(|t| t.action_for(event.id()));
+            if let Some(action) = menu_action {
+                match action {
+                    crate::menu::MenuAction::OpenLicenses => self.licenses.request_open(ctx),
+                }
+            } else if let Some(action) = tray_action {
+                match action {
+                    crate::tray::TrayAction::Show => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    crate::tray::TrayAction::Quit => {
+                        // Quit immediately rather than via `ViewportCommand::Close`: that
+                        // command only takes effect on a *subsequent* frame, but while the
+                        // tray menu is up the main window is backgrounded and eframe's loop is
+                        // idle, so that frame may not run until some later event happens to
+                        // wake it — which is what made "Quit" appear to need two clicks. Stop
+                        // the worker first so the camera and Syphon server are released
+                        // cleanly, then exit the process.
+                        self.stop_worker();
+                        std::process::exit(0);
+                    }
+                }
             }
         }
     }
@@ -643,6 +696,15 @@ impl GemelliApp {
 }
 
 impl eframe::App for GemelliApp {
+    // Native menu/tray events are polled here rather than in `ui`: eframe skips `ui` on
+    // frames where the window is not visible (minimized), but still calls `logic` whenever
+    // `request_repaint` was called — which the muda event handler does on every activation.
+    // Polling in `ui` would leave tray "Show"/"Quit" clicks queued but unprocessed exactly
+    // when they matter most: while the window is minimized.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_native_events(ctx);
+    }
+
     /// Called by eframe on shutdown (and periodically, every ~30s) with the "persistence"
     /// feature enabled; persists only the current device selection (see `config::GuiConfig`).
     /// Because this runs on a timer with no user action involved, it must never let an
@@ -655,11 +717,9 @@ impl eframe::App for GemelliApp {
         crate::config::save_config(storage, &self.saved_config);
     }
 
-    // `logic` (state-only, called before painting) is optional and defaults to a no-op; all of
-    // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.drain_errors();
-        self.poll_menu_actions(ui.ctx());
+
         self.refresh_preview(ui.ctx());
         self.licenses.show(ui.ctx());
 
