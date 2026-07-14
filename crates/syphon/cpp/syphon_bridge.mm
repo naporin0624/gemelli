@@ -31,7 +31,6 @@ struct SyphonBridgeHandle {
     id<MTLTexture> texture = nil;          // wraps `surface`, keeping it alive
     uint32_t       width = 0;
     uint32_t       height = 0;
-    size_t         surfaceBytesPerRow = 0; // actual kernel-aligned pitch, read back from the surface
 };
 
 // Row-wise copy: the IOSurface's actual stride (page/tile aligned by the
@@ -62,7 +61,6 @@ static void release_cache(SyphonBridgeHandle* h) {
     }
     h->width = 0;
     h->height = 0;
-    h->surfaceBytesPerRow = 0;
 }
 
 // (Re)builds the cached IOSurface + MTLTexture when the requested geometry
@@ -117,7 +115,6 @@ static bool ensure_cache(SyphonBridgeHandle* h, uint32_t width, uint32_t height)
     h->texture = texture;
     h->width = width;
     h->height = height;
-    h->surfaceBytesPerRow = IOSurfaceGetBytesPerRow(surface);
     return true;
 }
 

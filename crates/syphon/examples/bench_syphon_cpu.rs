@@ -1,8 +1,9 @@
 //! CPU micro-benchmark for the Syphon output path (macOS only). A/B-compares
 //! `SendMode::PerFrameCopy` vs `SendMode::PersistentCopy` at 1080p, 4K, and
-//! an unaligned-pitch crop, reporting per-frame wall/CPU time, memcpy
-//! throughput, single-core CPU% at 60 fps, and CPU-time speedup vs
-//! PerFrameCopy.
+//! an unaligned-pitch crop, reporting per-frame wall/CPU time, end-to-end
+//! publish throughput (wall time, including the Syphon command-buffer
+//! commit — not pure memcpy), single-core CPU% at 60 fps, and CPU-time
+//! speedup vs PerFrameCopy.
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
