@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-core-v0.2.0...gemelli-core-v0.3.0) (2026-07-14)
+
+
+### Features
+
+* select capture devices by name or unique ID ([ac397c9](https://github.com/naporin0624/gemelli/commit/ac397c909eb6fe151514c4be0ac857a91764c98a))
+* select capture devices by name or unique ID ([adb217e](https://github.com/naporin0624/gemelli/commit/adb217e51a4c27330919bfa6734849df5aca1633))
+
+
+### Bug Fixes
+
+* **gui:** keep the saved camera pin when falling back at launch ([c120fc3](https://github.com/naporin0624/gemelli/commit/c120fc3625a903f2708e7e878e25fd195170e48f))
+
 ## [0.2.0](https://github.com/naporin0624/gemelli/compare/gemelli-core-v0.1.0...gemelli-core-v0.2.0) (2026-07-08)
 
 

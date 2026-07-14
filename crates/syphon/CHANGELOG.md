@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0](https://github.com/naporin0624/gemelli/compare/gemelli-syphon-v0.3.0...gemelli-syphon-v0.4.0) (2026-07-14)
+
+
+### Features
+
+* **ci:** label-gated cross-platform benchmark workflow ([cecb2d6](https://github.com/naporin0624/gemelli/commit/cecb2d6665e1447b3ed285f27141d4105ac3b028))
+* Spout (Windows) output ([013c10a](https://github.com/naporin0624/gemelli/commit/013c10afa66266599b3a8fce4cfe98f369c4885a))
+
+
+### Bug Fixes
+
+* **syphon:** wait for the last command buffer before stopping the server ([d27398c](https://github.com/naporin0624/gemelli/commit/d27398ce96e8b2343d59ba1aec3615665cb7f0d5))
+
+
+### Performance Improvements
+
+* **syphon:** reuse a cached IOSurface and Metal texture across frames ([2935584](https://github.com/naporin0624/gemelli/commit/2935584bddaa7566b61c012796a0b9c78fb152bd))
+* **syphon:** reuse a cached IOSurface and Metal texture across frames ([858c990](https://github.com/naporin0624/gemelli/commit/858c9908d19d711d8e0a5e4db56159d32d366caf))
+
 ## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-syphon-v0.2.0...gemelli-syphon-v0.3.0) (2026-07-08)
 
 
