@@ -62,7 +62,6 @@ pub fn tar_czf_args(output: &Path, chdir: &Path, entry: &str) -> Vec<OsString> {
 
 /// `cargo build --release -p <pkg>...` — host-target release build of the given packages,
 /// used on Windows where a single-arch build (no `--target`) is all that's needed.
-#[allow(dead_code, reason = "wired up by the Windows packaging task that calls this builder")]
 pub fn cargo_build_release_args(packages: &[&str]) -> Vec<OsString> {
     let mut args = vec![OsString::from("build"), OsString::from("--release")];
     for package in packages {
@@ -74,7 +73,6 @@ pub fn cargo_build_release_args(packages: &[&str]) -> Vec<OsString> {
 
 /// `tar -a -c -f <output> -C <chdir> <entry>` — bsdtar (bundled with Windows 10+) infers the
 /// zip format from the `.zip` extension via `-a`, avoiding a zip crate dependency.
-#[allow(dead_code, reason = "wired up by the Windows packaging task that calls this builder")]
 pub fn tar_zip_args(output: &Path, chdir: &Path, entry: &str) -> Vec<OsString> {
     vec![
         OsString::from("-a"),
@@ -90,7 +88,6 @@ pub fn tar_zip_args(output: &Path, chdir: &Path, entry: &str) -> Vec<OsString> {
 /// `ISCC.exe /DMyAppVersion=<v> /DSourceDir=<dir> /DOutputDir=<dir> <script.iss>` — ISCC
 /// resolves relative paths against the .iss file's directory, not the CWD, so callers must
 /// pass absolute staging/output paths.
-#[allow(dead_code, reason = "wired up by the Windows packaging task that calls this builder")]
 pub fn iscc_args(version: &str, source_dir: &Path, output_dir: &Path, iss: &Path) -> Vec<OsString> {
     let mut source_define = OsString::from("/DSourceDir=");
     source_define.push(source_dir.as_os_str());
