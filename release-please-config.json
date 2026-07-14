@@ -5,8 +5,7 @@
     "crates/core": { "release-type": "rust" },
     "crates/cli": { "release-type": "rust" },
     "crates/gui": { "release-type": "rust" },
-    "crates/syphon": { "release-type": "rust" },
-    "crates/spout": { "release-type": "rust" }
+    "crates/publisher": { "release-type": "rust" }
   },
   "plugins": [{ "type": "cargo-workspace", "merge": true }]
 }

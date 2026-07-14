@@ -1919,8 +1919,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "gemelli-core",
- "gemelli-spout",
- "gemelli-syphon",
+ "gemelli-publisher",
  "thiserror 2.0.18",
 ]
 
@@ -1940,8 +1939,7 @@ dependencies = [
  "eframe",
  "egui",
  "gemelli-core",
- "gemelli-spout",
- "gemelli-syphon",
+ "gemelli-publisher",
  "muda",
  "png",
  "serde",
@@ -1952,21 +1950,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "gemelli-spout"
-version = "0.2.0"
+name = "gemelli-publisher"
+version = "0.1.0"
 dependencies = [
- "cc",
  "gemelli-core",
- "libc",
-]
-
-[[package]]
-name = "gemelli-syphon"
-version = "0.4.0"
-dependencies = [
- "cc",
- "gemelli-core",
- "libc",
+ "linguine",
 ]
 
 [[package]]
@@ -3728,6 +3716,15 @@ name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
+
+[[package]]
+name = "linguine"
+version = "0.1.0"
+source = "git+https://github.com/naporin0624/linguine?rev=28bfbe3d995f36962e762f244fac2d0c0eb2f665#28bfbe3d995f36962e762f244fac2d0c0eb2f665"
+dependencies = [
+ "cc",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "linux-raw-sys"

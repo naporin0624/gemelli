@@ -3,8 +3,6 @@
 .DS_Store
 /vendor/Syphon.framework
 /vendor/syphon-src/build
-/vendor/Spout2
-/_spout2_tmp
 
 # bundled fonts fetched by scripts/fetch-fonts.sh
 /vendor/fonts/

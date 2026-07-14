@@ -62,8 +62,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # gemelli-syphon links against Apple's Syphon.framework, built locally from the
-      # vendor/syphon-src submodule — see README.md "Setup" for the source of these commands.
+      # crates/publisher links linguine's Syphon bridge against Apple's Syphon.framework,
+      # built locally from the vendor/syphon-src submodule — see README.md "Build from source" for the
+      # source of these commands.
       - name: Build Syphon.framework
         run: |
           cd vendor/syphon-src
@@ -113,11 +114,9 @@ jobs:
         shell: bash
         run: ./scripts/fetch-fonts.sh
 
-      # gemelli-spout compiles SpoutDX + SpoutGL from the vendored Spout2 SDK
-      # — see scripts/fetch-spout.sh.
-      - name: Fetch Spout2 SDK
-        shell: bash
-        run: ./scripts/fetch-spout.sh
+      # No Spout2 fetch step: the SpoutDX/SpoutGL SDK subset is committed inside
+      # the linguine git dependency's own checkout (see README.md "Architecture"),
+      # so `cargo build` compiles Spout support with nothing extra to download.
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y

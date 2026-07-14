@@ -117,6 +117,20 @@ additional front end, not a replacement — `gemelli-cli` remains the headless p
 scripted/unattended launches), and both share the same `gemelli-core` transform and
 Syphon/Spout publish pipeline.
 
+## Architecture
+
+- `crates/core` — capture, transform, and publish traits/types, shared by both front ends.
+- `crates/cli` / `crates/gui` — the two front ends; both depend on `crates/core` and
+  `crates/publisher`, never on a platform bridge directly.
+- `crates/publisher` — thin `TexturePublisher` adapters (`SyphonPublisher` on macOS,
+  `SpoutPublisher` on Windows) over [linguine](https://github.com/naporin0624/linguine), the git
+  dependency that now owns the native Syphon/Spout bridges (FFI, IOSurface/staging-texture
+  handling, the vendored Spout2 SDK subset). Those bridges used to live in this repo as
+  `crates/syphon`/`crates/spout`; see linguine's README for their consumer mechanics (framework
+  resolution, dev-run/distribution rpath forwarding, the Windows ComCtl32 v6 manifest
+  requirement) and `.cargo/config.toml` for how this repo points linguine at
+  `vendor/Syphon.framework`.
+
 ## Build from source
 
 1. Install the toolchain via [mise](https://mise.jdx.dev/):
@@ -131,10 +145,11 @@ Syphon/Spout publish pipeline.
    pnpm install
    ```
 
-3. Build the Syphon bridge (macOS only — required to build `gemelli-syphon` / run the CLI's
-   publish step). `crates/syphon` links against Apple's Syphon.framework, which is not
-   vendored/prebuilt — it's built locally from a git submodule the first time you set up the
-   repo:
+3. Build Syphon.framework (macOS only — required for `crates/publisher` to link linguine's Syphon
+   bridge / run the CLI's publish step). Apple's Syphon.framework is not vendored/prebuilt — it's
+   built locally from a git submodule the first time you set up the repo, and
+   `.cargo/config.toml` points linguine's build.rs at the result via
+   `LINGUINE_SYPHON_FRAMEWORK_DIR`:
    ```bash
    # 1. fetch the Syphon Framework source (once, or after a fresh clone without --recursive)
    git submodule update --init --recursive
@@ -177,16 +192,12 @@ Syphon/Spout publish pipeline.
 
 ### Windows (Spout)
 
-Fetch the Spout2 SDK (compiled into `gemelli-spout` at build time), from Git Bash or WSL:
-
-```bash
-./scripts/fetch-spout.sh
-```
-
-This downloads Spout2 into `vendor/Spout2/` (gitignored, like the Syphon build output above) and
-`crates/spout/build.rs` compiles SpoutDX + SpoutGL from there. Requires the MSVC C++ toolchain
-(Visual Studio Build Tools, `x86_64-pc-windows-msvc` — the vendored SDK is MSVC-only, it does not
-build under `-gnu`).
+Nothing to fetch — `cargo build` compiles Spout support directly. The Spout2 SDK subset
+`crates/publisher`'s Windows path compiles against is committed inside linguine's own checkout at
+`vendor/Spout2` (pinned to Spout2 tag `2.007.017`; see linguine's README), which Cargo pulls down
+as part of resolving the `linguine` git dependency in the root `Cargo.toml` — there is no
+`fetch-spout.sh` step in this repo anymore. Requires the MSVC C++ toolchain (Visual Studio Build
+Tools, `x86_64-pc-windows-msvc` — the vendored SDK is MSVC-only, it does not build under `-gnu`).
 
 Both `crates/cli` and `crates/gui` embed an application manifest
 (`app.manifest`, via `build.rs`'s `embed_windows_manifest`) that activates ComCtl32 v6. This is
@@ -290,11 +301,17 @@ client installed and are **not** automated.
 Requires a real Windows machine (the `#[cfg(target_os = "windows")]` publisher path and the
 vendored SpoutDX/SpoutGL bridge are not exercised by macOS/Linux CI at all).
 
-- [ ] Run the 3 `#[ignore]`d `gemelli-spout` tests against a running Spout receiver:
-      `cargo test -p gemelli-spout -- --ignored`.
-- [ ] `cargo run -p gemelli-spout --release --example bench_spout_cpu` completes and its report
-      confirms `SendMode::StagingSse` (the crate's default send mode) is at least as fast as
-      `StagingRowCopy` on real hardware, not just in the A/B/C numbers from one dev box.
+The hardware-verified `SpoutSender` send-path tests and the `bench_spout_cpu` A/B benchmark used
+to live in this repo as `gemelli-spout`; they now live in
+[linguine](https://github.com/naporin0624/linguine), the crate `crates/publisher` depends on:
+
+- [ ] In a linguine checkout pinned to the same `rev` as this repo's root `Cargo.toml`, run its
+      `#[ignore]`d Spout tests against a running Spout receiver: `cargo test -p linguine --
+      --ignored`.
+- [ ] In that same checkout, `cargo run --release --example bench_spout_cpu` completes and its
+      report confirms `SendMode::SendImage` (linguine's default send mode) is at least as fast as
+      `StagingRowCopy` on real hardware, not just in the numbers from one dev box — or trigger
+      linguine's own `bench.yml` (label-gated on `benchmark`) instead of running it locally.
 - [ ] Run `cargo run -p gemelli-cli -- --list-devices` then
       `cargo run -p gemelli-cli -- 0 --rotate 90 --flip h --scale 0.5`, and view the output in
       OBS (Spout2 Source plugin) or the Spout demo `SpoutReceiver`: a sender named `gemelli`
@@ -348,8 +365,9 @@ defense.
 MIT — see workspace `Cargo.toml` (`license = "MIT"`).
 
 This project vendors [Syphon-Framework](https://github.com/Syphon/Syphon-Framework) (via the
-`vendor/syphon-src` git submodule) as a build-time dependency of `gemelli-syphon`.
-Syphon-Framework is distributed under a BSD-style license; the full text is reproduced in
+`vendor/syphon-src` git submodule) as a build-time dependency of `crates/publisher`, which links
+it via the [linguine](https://github.com/naporin0624/linguine) git dependency (see "Architecture"
+above). Syphon-Framework is distributed under a BSD-style license; the full text is reproduced in
 [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES) and ships with the submodule at
 `vendor/syphon-src/LICENSE`. No Syphon-Framework source is copied into this repository — it is
 fetched and built locally per the "Build from source" steps above.
@@ -359,6 +377,8 @@ fetched at build time by `scripts/fetch-fonts.sh` — see
 [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No font file is committed to this repository.
 
 This project vendors the [Spout2 SDK](https://github.com/leadedge/Spout2) (BSD-2-Clause) as a
-build-time dependency of `gemelli-spout`, fetched into `vendor/Spout2/` by
-`scripts/fetch-spout.sh` — see [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No Spout2 source
-is copied into this repository.
+build-time dependency of `crates/publisher`, which links it via the
+[linguine](https://github.com/naporin0624/linguine) git dependency — linguine commits the SDK
+subset at its own `vendor/Spout2` (see linguine's README) rather than gemelli fetching it directly
+— see [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No Spout2 source is copied into this
+repository.

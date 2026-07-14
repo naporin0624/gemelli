@@ -38,5 +38,6 @@ allow = [
     # file-level copyleft; carries no obligation for an unmodified, non-shipping dependency.
     "MPL-2.0",
 ]
-# gemelli-{core,cli,gui,syphon} are all `license = "MIT"` (workspace.package), already covered
-# by the allow list above — no [licenses.private] override is needed.
+# gemelli-{core,cli,gui,publisher} are all `license = "MIT"` (workspace.package), already covered
+# by the allow list above — no [licenses.private] override is needed. linguine (git dependency of
+# gemelli-publisher) is also MIT.

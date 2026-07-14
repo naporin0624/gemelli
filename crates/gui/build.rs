@@ -15,7 +15,7 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     emit_build_id()?;
     embed_windows_manifest()?;
-    emit_syphon_rpath()
+    emit_publisher_rpath()
 }
 
 /// Embeds a short git SHA (`VERGEN_GIT_SHA`) and the build date
@@ -47,23 +47,24 @@ fn emit_build_id() -> Result<(), String> {
     Ok(())
 }
 
-// `crates/syphon/build.rs` emits the `-rpath` linker args needed to find the
-// vendored Syphon.framework at runtime, but Cargo's `rustc-link-arg`
+// `crates/publisher/build.rs` emits the `-rpath` linker arg needed to find
+// the vendored Syphon.framework at runtime, but Cargo's `rustc-link-arg`
 // instruction only applies to the emitting package's own targets — it does
 // not propagate to downstream binaries that merely depend on that crate
 // (unlike `rustc-link-lib`/`rustc-link-search`, which do propagate). Since
-// this crate's binary links `gemelli-syphon` on macOS, it needs
-// the same rpath entries itself or `@rpath/Syphon.framework/...` cannot be
+// this crate's binary links `gemelli-publisher` on macOS, it needs
+// the same rpath entry itself or `@rpath/Syphon.framework/...` cannot be
 // resolved at process launch.
 //
-// Rather than duplicating the rpath list here, read it back from syphon's
-// `links = "syphon_bridge"` build-script metadata (published as
-// `cargo::metadata=rpath=...` in crates/syphon/build.rs) via the
-// `DEP_SYPHON_BRIDGE_RPATH` env var Cargo derives from it. This var is only
-// set when the syphon crate is an active dependency (macOS targets), so its
-// absence on other platforms is expected and not an error.
-fn emit_syphon_rpath() -> Result<(), String> {
-    let Ok(rpaths) = std::env::var("DEP_SYPHON_BRIDGE_RPATH") else {
+// Rather than duplicating the rpath here, read it back from publisher's
+// `links = "gemelli_publisher"` build-script metadata (published as
+// `cargo::metadata=rpath=...` in crates/publisher/build.rs, itself forwarded
+// from linguine's `DEP_LINGUINE_RPATH`) via the `DEP_GEMELLI_PUBLISHER_RPATH`
+// env var Cargo derives from it. This var is only set when the publisher
+// crate is an active dependency and resolves a framework directory (macOS
+// targets), so its absence on other platforms is expected and not an error.
+fn emit_publisher_rpath() -> Result<(), String> {
+    let Ok(rpaths) = std::env::var("DEP_GEMELLI_PUBLISHER_RPATH") else {
         return Ok(());
     };
 

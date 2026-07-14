@@ -64,16 +64,9 @@ pub fn resolve_device(
     Ok(DeviceResolution::Device(device.clone()))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn create_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, CliError> {
-    let publisher = gemelli_syphon::SyphonPublisher::new(server_name)?;
-    Ok(Box::new(publisher))
-}
-
-#[cfg(target_os = "windows")]
-fn create_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, CliError> {
-    let publisher = gemelli_spout::SpoutPublisher::new(server_name)?;
-    Ok(Box::new(publisher))
+    Ok(gemelli_publisher::open_publisher(server_name)?)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
