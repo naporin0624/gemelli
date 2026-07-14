@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.4.0...gemelli-gui-v0.5.0) (2026-07-14)
+
+
+### Features
+
+* **assets:** generate a multi-size windows icon.ico ([ffd1a61](https://github.com/naporin0624/gemelli/commit/ffd1a61fd0a2461909fb0cea6cd0244790c6301c))
+* ship Windows installer and auto-attaching release builds ([c04ea33](https://github.com/naporin0624/gemelli/commit/c04ea3316e0da5d9dec38df5a0486e13845f05c0))
+
 ## [0.4.0](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.3.0...gemelli-gui-v0.4.0) (2026-07-14)
 
 

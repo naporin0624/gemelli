@@ -26,7 +26,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       # crates/publisher links linguine's Syphon bridge against Apple's Syphon.framework,
-      # built locally from the vendor/syphon-src submodule — see README.md "Setup" for the
+      # built locally from the vendor/syphon-src submodule — see README.md "Build from source" for the
       # source of these commands.
       - name: Build Syphon.framework
         run: |

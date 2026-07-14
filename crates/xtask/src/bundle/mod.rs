@@ -9,6 +9,7 @@ pub mod cmd;
 pub mod layout;
 pub mod plist;
 pub mod readme;
+pub mod windows;
 
 use layout::AppBundlePaths;
 use plist::PlistFields;
@@ -35,16 +36,21 @@ fn io_error(path: &Path, source: std::io::Error) -> crate::XtaskError {
 }
 
 /// Runs `command` with `args` in `cwd`, mapping spawn failure and nonzero exit into `XtaskError`.
-fn run_checked(command: &str, args: &[OsString], cwd: &Path) -> Result<(), crate::XtaskError> {
-    let output = Command::new(command)
+fn run_checked(
+    command: impl AsRef<std::ffi::OsStr>,
+    args: &[OsString],
+    cwd: &Path,
+) -> Result<(), crate::XtaskError> {
+    let command_name = command.as_ref().to_string_lossy().into_owned();
+    let output = Command::new(command.as_ref())
         .args(args)
         .current_dir(cwd)
         .output()
-        .map_err(|source| crate::XtaskError::Spawn { command: command.to_string(), source })?;
+        .map_err(|source| crate::XtaskError::Spawn { command: command_name.clone(), source })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(crate::XtaskError::Subprocess { command: command.to_string(), stderr });
+        return Err(crate::XtaskError::Subprocess { command: command_name, stderr });
     }
 
     Ok(())
@@ -195,10 +201,23 @@ fn stage_cli_tarball_contents(
     Ok(())
 }
 
+/// Packages the host OS's distribution artifacts under `target/dist/`: `.dmg` + CLI `.tar.gz`
+/// on macOS, `.zip` + Inno Setup installer on Windows. `cfg!` (not `#[cfg]`) keeps both
+/// per-OS paths compiling — and their unit tests running — on every host.
+pub fn dist(root: &Path) -> Result<(), crate::XtaskError> {
+    if cfg!(windows) {
+        windows::dist(root)
+    } else if cfg!(target_os = "macos") {
+        dist_macos(root)
+    } else {
+        Err(crate::XtaskError::UnsupportedHost)
+    }
+}
+
 /// Assembles `target/dist/gemelli-<version>-macos-universal.dmg` (wrapping the `.app` from
 /// [`bundle`]) and `target/dist/gemelli-<version>-macos-universal.tar.gz` (a universal2 CLI
 /// binary plus its framework and docs).
-pub fn dist(root: &Path) -> Result<(), crate::XtaskError> {
+fn dist_macos(root: &Path) -> Result<(), crate::XtaskError> {
     let bundle_output = bundle(root)?;
     let dist_dir = root.join("target/dist");
 
