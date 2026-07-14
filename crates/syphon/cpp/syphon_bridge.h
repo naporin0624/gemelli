@@ -22,6 +22,9 @@ SyphonBridgeHandle* syphon_bridge_create(const char* server_name);
 // exactly `width * 4` (tightly packed, as this project's core always does)
 // without the bridge assuming it.
 //
+// Delegates to syphon_bridge_send_rgba_mode with the shipped strategy
+// (mode 1: cached IOSurface, reused across calls).
+//
 // Returns true on success, false on failure (invalid arguments, IOSurface
 // allocation failure, or Metal texture creation failure).
 bool syphon_bridge_send_rgba(SyphonBridgeHandle* handle,
@@ -29,6 +32,18 @@ bool syphon_bridge_send_rgba(SyphonBridgeHandle* handle,
                               uint32_t width,
                               uint32_t height,
                               uint32_t bytes_per_row);
+
+// Same contract as syphon_bridge_send_rgba, with an explicit copy-strategy
+// selector for A/B benchmarking (see gemelli-syphon's SendMode):
+//   0 = allocate a fresh IOSurface + MTLTexture every call
+//   1 = reuse a cached IOSurface + MTLTexture, reallocated only when width or
+//       height changes (any other value falls back to 0)
+bool syphon_bridge_send_rgba_mode(SyphonBridgeHandle* handle,
+                                   const uint8_t* pixels,
+                                   uint32_t width,
+                                   uint32_t height,
+                                   uint32_t bytes_per_row,
+                                   uint32_t mode);
 
 // Stops the Syphon server and releases all resources. `handle` must not be
 // used after this call. Safe to call with NULL (no-op).
