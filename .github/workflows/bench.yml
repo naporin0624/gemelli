@@ -126,6 +126,14 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr }}
           SHA: ${{ github.sha }}
+          # Job *conclusions*, not just artifact-file presence: the bench
+          # binary pipes through `tee`, so a mid-run crash (e.g. a Windows
+          # STATUS_ACCESS_VIOLATION) still leaves a partial markdown file on
+          # disk to upload. Gating on `needs.*.result` too means a partial
+          # file from a failed run renders as the ❌ fallback, not a
+          # truncated table.
+          MACOS_RESULT: ${{ needs.bench-macos.result }}
+          WINDOWS_RESULT: ${{ needs.bench-windows.result }}
         run: |
           set -euo pipefail
 
@@ -135,14 +143,14 @@ jobs:
             echo "_Commit: ${SHA}. GitHub runner GPUs are virtualized (Metal paravirtual / D3D possibly WARP) — treat numbers as relative comparisons between modes, not real-hardware absolutes._"
             echo
             echo "### macOS (Syphon)"
-            if [ -f artifacts/macos/bench-macos.md ]; then
+            if [ "$MACOS_RESULT" = "success" ] && [ -f artifacts/macos/bench-macos.md ]; then
               cat artifacts/macos/bench-macos.md
             else
               echo "❌ bench job failed — see run logs"
             fi
             echo
             echo "### Windows (Spout)"
-            if [ -f artifacts/windows/bench-windows.md ]; then
+            if [ "$WINDOWS_RESULT" = "success" ] && [ -f artifacts/windows/bench-windows.md ]; then
               cat artifacts/windows/bench-windows.md
             else
               echo "❌ bench job failed — see run logs"
@@ -153,7 +161,7 @@ jobs:
             --jq '[.[] | select(.body | startswith("<!-- gemelli-bench -->"))][0].id // empty')
 
           if [ -n "$existing_id" ]; then
-            gh api "repos/${REPO}/issues/comments/${existing_id}" -X PATCH -f body=@body.md
+            gh api "repos/${REPO}/issues/comments/${existing_id}" -X PATCH -F body=@body.md
           else
-            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -X POST -f body=@body.md
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" -X POST -F body=@body.md
           fi
