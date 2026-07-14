@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.3.1](https://github.com/naporin0624/gemelli/compare/gemelli-cli-v0.3.0...gemelli-cli-v0.3.1) (2026-07-14)
+
 ## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-cli-v0.2.1...gemelli-cli-v0.3.0) (2026-07-14)
 
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/naporin0624/gemelli/compare/gemelli-core-v0.3.0...gemelli-core-v0.3.1) (2026-07-14)
+
+
+### Performance Improvements
+
+* **core:** negotiate high-fps MJPEG + fast RGB-&gt;BGRA (~5 -&gt; ~50fps) ([5fd5e45](https://github.com/naporin0624/gemelli/commit/5fd5e45e5dfbc29d31b2835f27aae1cc9b3fb7b9))
+* **core:** negotiate high-fps MJPEG + fast RGB→BGRA on main (~5 → ~50fps) ([492e4b4](https://github.com/naporin0624/gemelli/commit/492e4b4db392c51cbf375d2c323aa8a66c3f650e))
+
 ## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-core-v0.2.0...gemelli-core-v0.3.0) (2026-07-14)
 
 

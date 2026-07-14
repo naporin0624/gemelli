@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.5.0...gemelli-gui-v0.5.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **gui:** suppress the Windows console window in release builds ([604f4ef](https://github.com/naporin0624/gemelli/commit/604f4efa34d706e18e1e7e5b8b432f7f0d925df2))
+* **gui:** suppress the Windows console window in release builds ([48b3c03](https://github.com/naporin0624/gemelli/commit/48b3c03e1f552e31c25a5fb30e8e5db5b6e075e4))
+
 ## [0.5.0](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.4.0...gemelli-gui-v0.5.0) (2026-07-14)
 
 

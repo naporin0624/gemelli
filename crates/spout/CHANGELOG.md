@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.2.1](https://github.com/naporin0624/gemelli/compare/gemelli-spout-v0.2.0...gemelli-spout-v0.2.1) (2026-07-14)
+
 ## [0.2.0](https://github.com/naporin0624/gemelli/compare/gemelli-spout-v0.1.0...gemelli-spout-v0.2.0) (2026-07-14)
 
 
