@@ -3929,7 +3929,7 @@ dependencies = [
 [[package]]
 name = "nokhwa-bindings-macos"
 version = "0.2.4"
-source = "git+https://github.com/naporin0624/nokhwa?branch=fix%2Fbgra-support#a02d544769f715a62de13bc07b1029e189ad419f"
+source = "git+https://github.com/naporin0624/nokhwa?rev=a02d544769f715a62de13bc07b1029e189ad419f#a02d544769f715a62de13bc07b1029e189ad419f"
 dependencies = [
  "block",
  "cocoa-foundation",
@@ -3956,7 +3956,7 @@ dependencies = [
 [[package]]
 name = "nokhwa-core"
 version = "0.1.9"
-source = "git+https://github.com/naporin0624/nokhwa?branch=fix%2Fbgra-support#a02d544769f715a62de13bc07b1029e189ad419f"
+source = "git+https://github.com/naporin0624/nokhwa?rev=a02d544769f715a62de13bc07b1029e189ad419f#a02d544769f715a62de13bc07b1029e189ad419f"
 dependencies = [
  "bytes",
  "image",
