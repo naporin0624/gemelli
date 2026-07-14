@@ -1,13 +1,17 @@
-name: CI
+name: macOS
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
   pull_request:
-    branches: [main]
+    types: [labeled]
 
 jobs:
   check:
+    # Fires only via manual dispatch or the ci-macos label (macOS runners bill
+    # at 10x Linux minutes; keep this off the automatic PR path). Full local
+    # gates run on a real Mac before every push, so this is the pre-merge
+    # confirmation, not the first line of defense.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci-macos'
     runs-on: macos-15
     name: Lint & Test
     steps:

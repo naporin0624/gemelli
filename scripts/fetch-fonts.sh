@@ -19,7 +19,20 @@ if ! curl -fsSL "$URL" -o "$tmp/seed.zip"; then
   exit 1
 fi
 
-if ! unzip -q "$tmp/seed.zip" -d "$tmp/x"; then
+# Prefer unzip when present; Git Bash on windows-latest doesn't reliably ship it, but
+# windows-latest's bsdtar (invoked as `tar`) can extract zips too.
+extract_zip() {
+  archive="$1"
+  dest="$2"
+  mkdir -p "$dest"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q "$archive" -d "$dest"
+  else
+    tar -xf "$archive" -C "$dest"
+  fi
+}
+
+if ! extract_zip "$tmp/seed.zip" "$tmp/x"; then
   echo "ERROR: failed to unzip the downloaded archive ($tmp/seed.zip)" >&2
   exit 1
 fi
@@ -28,7 +41,7 @@ fi
 # that are present so the font search below sees everything. This particular release
 # (v20251119) does not nest, but future releases might, so this stays defensive.
 find "$tmp/x" -name '*.zip' -print0 | while IFS= read -r -d '' inner; do
-  unzip -qo "$inner" -d "${inner}.d" || true
+  extract_zip "$inner" "${inner}.d" || true
 done
 
 # Prefer an actual .ttf; only fall back to .otf if no ttf match exists.

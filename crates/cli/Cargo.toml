@@ -22,3 +22,6 @@ thiserror = { workspace = true }
 # table here: release-please's Rust manifest updater cannot parse cfg()
 # target tables and fails to bump this crate's version.
 gemelli-syphon = { path = "../syphon" }
+# Same rationale as gemelli-syphon above, but gated to Windows inside
+# gemelli-spout itself (`#![cfg(target_os = "windows")]`).
+gemelli-spout = { path = "../spout" }

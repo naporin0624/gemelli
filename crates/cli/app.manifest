@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Activates ComCtl32 v6. The vendored Spout2 SDK (SpoutUtils) imports
+     COMCTL32 ordinal 345, which exists only in the v6 common-controls
+     assembly; without this dependency the loader binds the v5 comctl32.dll in
+     System32 and gemelli.exe fails to start with "ordinal 345 not found". -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"/>
+    </dependentAssembly>
+  </dependency>
+</assembly>

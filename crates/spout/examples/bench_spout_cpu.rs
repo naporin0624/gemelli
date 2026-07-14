@@ -1,26 +1,30 @@
-//! CPU micro-benchmark for the Syphon output path (macOS only). A/B-compares
-//! `SendMode::PerFrameCopy` vs `SendMode::PersistentCopy` at 1080p, 4K, and
-//! an unaligned-pitch crop, reporting per-frame wall/CPU time, end-to-end
-//! publish throughput (wall time, including the Syphon command-buffer
-//! commit — not pure memcpy), single-core CPU% at 60 fps, and CPU-time
-//! speedup vs PerFrameCopy.
+//! CPU micro-benchmark for the Spout output path (Windows only). A/B/C-
+//! compares `SendMode::StagingRowCopy`, `SendMode::SendImage`, and
+//! `SendMode::StagingSse` at 1080p, 4K, and an unaligned-pitch crop,
+//! reporting per-frame wall/CPU time, end-to-end publish throughput (wall
+//! time, including the SpoutDX send call — not pure memcpy), single-core
+//! CPU% at 60 fps, and CPU-time speedup vs StagingRowCopy (the baseline,
+//! matching the original send strategy this crate started from).
 //!
 //! Set `BENCH_FORMAT=markdown` to print a GitHub-flavored-markdown heading
 //! and table per case instead of the default aligned-text tables (e.g. for
 //! posting results as a PR comment from CI). The default output is
 //! unaffected by this switch.
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(target_os = "windows"))]
 fn main() {
-    eprintln!("bench_syphon_cpu is macOS-only (Syphon backend).");
+    eprintln!("bench_spout_cpu is Windows-only (Spout backend).");
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use gemelli_syphon::SendMode;
+    use gemelli_spout::SendMode;
 
-    let modes =
-        [("PerFrameCopy", SendMode::PerFrameCopy), ("PersistentCopy", SendMode::PersistentCopy)];
+    let modes = [
+        ("StagingRowCopy", SendMode::StagingRowCopy),
+        ("SendImage", SendMode::SendImage),
+        ("StagingSse", SendMode::StagingSse),
+    ];
     let format = BenchFormat::from_env();
 
     // (label, width, height, frames, warmup)
@@ -40,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// `BENCH_FORMAT` env var. Kept as its own type (rather than a bare bool) so
 /// call sites read as intent, not a flag, and so a third format can be added
 /// without renaming a `markdown: bool` parameter everywhere.
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BenchFormat {
     /// The original aligned-text tables (default; byte-identical to before
@@ -50,7 +54,7 @@ enum BenchFormat {
     Markdown,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
 impl BenchFormat {
     /// Reads `BENCH_FORMAT` from the environment; any value other than
     /// exactly `"markdown"` (including unset) selects `Text`.
@@ -62,18 +66,18 @@ impl BenchFormat {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
 fn bench_resolution(
     label: &str,
     width: u32,
     height: u32,
     frames: u32,
     warmup: u32,
-    modes: &[(&str, gemelli_syphon::SendMode)],
+    modes: &[(&str, gemelli_spout::SendMode)],
     format: BenchFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use gemelli_core::frame::Frame;
-    use gemelli_syphon::{SyphonPublisher, metrics};
+    use gemelli_spout::{SpoutPublisher, metrics};
     use std::time::Duration;
 
     let bytes_per_frame = metrics::frame_bytes(width, height);
@@ -90,7 +94,7 @@ fn bench_resolution(
     match format {
         BenchFormat::Text => {
             println!();
-            println!("== Syphon output CPU benchmark: {label} ==");
+            println!("== Spout output CPU benchmark: {label} ==");
             println!(
                 "resolution : {width}x{height}  ({:.2} MB/frame, BGRA)",
                 f64::from(bytes_per_frame) / 1e6
@@ -110,24 +114,25 @@ fn bench_resolution(
         }
     }
 
-    // CPU time per frame for each mode; index 0 is the PerFrameCopy baseline.
+    // CPU time per frame for each mode; index 0 is the StagingRowCopy baseline.
     let mut baseline_cpu = Duration::ZERO;
 
     for (i, (name, mode)) in modes.iter().enumerate() {
-        // Fresh publisher per mode so cache state doesn't bleed between strategies.
-        let mut publisher = SyphonPublisher::new("gemelli-bench")?;
+        // Fresh publisher per mode so staging-texture cache state doesn't
+        // bleed between strategies.
+        let mut publisher = SpoutPublisher::new("gemelli-bench")?;
 
         for _ in 0..warmup {
             publisher.publish_mode(&frame, *mode)?;
         }
 
-        let cpu_start = thread_cpu_time();
+        let cpu_start = process_cpu_time();
         let wall_start = std::time::Instant::now();
         for _ in 0..frames {
             publisher.publish_mode(&frame, *mode)?;
         }
         let wall = wall_start.elapsed();
-        let cpu = thread_cpu_time().saturating_sub(cpu_start);
+        let cpu = process_cpu_time().saturating_sub(cpu_start);
         drop(publisher);
 
         let wall_us = metrics::per_frame_micros(wall, frames);
@@ -159,18 +164,26 @@ fn bench_resolution(
     Ok(())
 }
 
-/// User+kernel CPU time consumed by the *calling* thread so far.
-#[cfg(target_os = "macos")]
-fn thread_cpu_time() -> std::time::Duration {
-    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: `ts` is a valid, exclusively-owned `libc::timespec` for the
-    // duration of this call; `clock_gettime` only writes through the pointer.
-    unsafe {
-        // Ignore the return code: on failure the fields stay zero, yielding
-        // a zero duration.
-        let _ = libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts);
-    }
-    let secs = u64::try_from(ts.tv_sec).unwrap_or_default();
-    let nanos = u32::try_from(ts.tv_nsec).unwrap_or_default();
-    std::time::Duration::new(secs, nanos)
+/// User+kernel CPU time consumed by this process so far.
+///
+/// Unlike `crates/syphon/examples/bench_syphon_cpu.rs`, which reads
+/// thread-specific CPU time via POSIX `CLOCK_THREAD_CPUTIME_ID`, Windows has
+/// no thread-scoped clock exposed through the `libc` crate (only
+/// `GetThreadTimes`, a raw Win32 API this bridge does not otherwise bind).
+/// `libc::clock()` measures whole-process CPU time instead — a reasonable
+/// proxy here since this benchmark binary is single-threaded end to end.
+#[cfg(target_os = "windows")]
+fn process_cpu_time() -> std::time::Duration {
+    // The Windows CRT's `clock()` ticks at 1000 Hz (CLOCKS_PER_SEC == 1000),
+    // unlike POSIX's 1_000_000 Hz. The `libc` crate does not bind
+    // `CLOCKS_PER_SEC` for any target, so the CRT-documented value is used
+    // directly.
+    const WINDOWS_CLOCKS_PER_SEC: i64 = 1000;
+
+    // SAFETY: `clock()` takes no arguments and only reads process-global CRT
+    // state; it has no preconditions beyond being linked against the CRT,
+    // which every Windows Rust binary is.
+    let ticks = i64::from(unsafe { libc::clock() });
+    let millis = ticks.saturating_mul(1000) / WINDOWS_CLOCKS_PER_SEC;
+    std::time::Duration::from_millis(u64::try_from(millis).unwrap_or(0))
 }

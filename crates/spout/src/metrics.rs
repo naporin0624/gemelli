@@ -1,5 +1,5 @@
-//! Pure metric calculations for the Syphon-output CPU benchmark
-//! (`examples/bench_syphon_cpu.rs`), kept free of FFI code so they are
+//! Pure metric calculations for the Spout-output CPU benchmark
+//! (`examples/bench_spout_cpu.rs`), kept free of FFI code so they are
 //! unit-testable on every target.
 
 use std::time::Duration;
@@ -110,8 +110,8 @@ mod tests {
     #[test]
     fn markdown_row_formats_a_pipe_delimited_table_row() {
         assert_eq!(
-            markdown_row("PerFrameCopy", 1234.5, 987.65, 4321.0, 59.26, 1.0),
-            "| PerFrameCopy | 1234.50 | 987.65 | 4321 | 59.26 | 1.00x |"
+            markdown_row("StagingRowCopy", 1234.5, 987.65, 4321.0, 59.26, 1.0),
+            "| StagingRowCopy | 1234.50 | 987.65 | 4321 | 59.26 | 1.00x |"
         );
     }
 }
