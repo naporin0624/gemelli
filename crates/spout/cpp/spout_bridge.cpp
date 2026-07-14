@@ -1,8 +1,9 @@
 // C++ bridge exposing a Spout DirectX sender to Rust FFI. Sender-only,
 // CPU-pixel path: gemelli hands a BGRA8 CPU buffer per frame
 // (gemelli-core::Frame). Three send strategies are exposed for
-// gemelli-spout to A/B (see spout_bridge.h); StagingSse is gemelli-spout's
-// production default.
+// gemelli-spout to A/B (see spout_bridge.h); SendImage is gemelli-spout's
+// production default (~3x faster than the staging-texture modes on the
+// windows-latest CI runner across all benchmarked cases).
 
 #include "spout_bridge.h"
 

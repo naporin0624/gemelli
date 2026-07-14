@@ -24,20 +24,24 @@ pub enum SendMode {
     /// scanline, then `SpoutDX::SendTexture`.
     StagingRowCopy,
     /// `SpoutDX::SendImage`, which uploads the CPU buffer straight into the
-    /// shared texture via `UpdateSubresource` (no staging texture). This is
-    /// the mode E2E-verified against a real Spout receiver on Windows
-    /// hardware in gemelli-spout's original hardware-tested prototype; kept
-    /// selectable for A/B runs alongside the newer strategies below.
+    /// shared texture via `UpdateSubresource` (no staging texture).
+    /// Production default (see `publish`): ~3x faster than both staging
+    /// modes on the windows-latest CI runner across all three benchmarked
+    /// cases (1080p 2.99x, 4K 3.66x, cropped/unaligned-pitch 3.58x vs. the
+    /// `StagingRowCopy` baseline), and the mode E2E-verified against a real
+    /// Spout receiver on Windows hardware in gemelli-spout's original
+    /// hardware-tested prototype.
     SendImage,
     /// DYNAMIC staging texture, filled with `SpoutCopy`'s SSE2 pitch-aware
     /// line copier instead of a scalar `memcpy` loop, then
-    /// `SpoutDX::SendTexture`. Production default (see `publish`): fastest
-    /// CPU time at 4K — where sustaining 60fps is hardest — and ties
-    /// `StagingRowCopy` within noise at 1080p, per the reference
-    /// implementation's benchmarks. The bridge automatically falls back to
-    /// a row-by-row `memcpy` for frames whose row pitch is not a multiple of
-    /// 16 bytes (e.g. odd crop widths), since SpoutCopy's SSE2 path requires
-    /// 16-byte-aligned rows.
+    /// `SpoutDX::SendTexture`. Kept selectable for A/B runs: the reference
+    /// implementation reported this as its fastest mode at 4K, but that did
+    /// not reproduce here — on the windows-latest CI runner it measured only
+    /// 0.93x-1.24x vs. the `StagingRowCopy` baseline across all three
+    /// benchmarked cases, well behind `SendImage`. The bridge automatically
+    /// falls back to a row-by-row `memcpy` for frames whose row pitch is not
+    /// a multiple of 16 bytes (e.g. odd crop widths), since SpoutCopy's SSE2
+    /// path requires 16-byte-aligned rows.
     StagingSse,
 }
 
@@ -92,7 +96,7 @@ impl SpoutPublisher {
 
     /// Publishes `frame` using a specific send strategy. Exposed for A/B
     /// benchmarking; production callers should use `publish`, which always
-    /// selects `SendMode::StagingSse`.
+    /// selects `SendMode::SendImage`.
     pub fn publish_mode(&mut self, frame: &Frame, mode: SendMode) -> Result<(), PublishError> {
         let pitch = frame.width().checked_mul(4).ok_or_else(|| PublishError::Publish {
             reason: format!("frame width {} overflows pitch (width * 4)", frame.width()),
@@ -127,7 +131,7 @@ impl SpoutPublisher {
 
 impl TexturePublisher for SpoutPublisher {
     fn publish(&mut self, frame: &Frame) -> Result<(), PublishError> {
-        self.publish_mode(frame, SendMode::StagingSse)
+        self.publish_mode(frame, SendMode::SendImage)
     }
 }
 
