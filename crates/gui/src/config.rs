@@ -58,12 +58,30 @@ pub fn restore_selection(config: &GuiConfig, devices: &[DeviceInfo]) -> (usize, 
     (0, Some(missing_camera_banner(saved_name, devices)))
 }
 
+/// Decides what `GemelliApp::save` should actually persist. `confirmed`
+/// gates whether `current` is trustworthy enough to overwrite `saved`:
+/// `false` means the live selection is an unconfirmed fallback (saved device
+/// absent at restore, enumeration failed, or a reload couldn't re-find the
+/// selected id) and must not clobber a still-meaningful pin from an earlier
+/// session. `current` missing (e.g. the device list is momentarily empty)
+/// is treated the same as unconfirmed — there is nothing trustworthy to
+/// persist.
+pub fn next_config(confirmed: bool, current: Option<&DeviceInfo>, saved: &GuiConfig) -> GuiConfig {
+    match (confirmed, current) {
+        (true, Some(device)) => GuiConfig {
+            device_id: device.id.as_ref().map(|id| id.as_str().to_owned()),
+            device_name: Some(device.name.clone()),
+        },
+        _ => saved.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gemelli_core::capture::DeviceInfo;
     use gemelli_core::selector::DeviceId;
 
-    use super::{GuiConfig, position_of_id, restore_selection};
+    use super::{GuiConfig, next_config, position_of_id, restore_selection};
 
     fn device(index: u32, name: &str, id: Option<&str>) -> DeviceInfo {
         DeviceInfo { index, name: name.to_string(), id: id.and_then(DeviceId::new) }
@@ -163,5 +181,71 @@ mod tests {
         let round_tripped: GuiConfig = serde_json::from_str(&json).expect("deserializes");
 
         assert_eq!(round_tripped, config);
+    }
+
+    #[test]
+    fn next_config_fallback_unconfirmed_keeps_prior_config() {
+        // An unconfirmed fallback selection (e.g. the saved camera wasn't
+        // found and position 0 was used instead) must never clobber the
+        // still-meaningful pin from an earlier session.
+        let saved = GuiConfig {
+            device_id: Some("id-obs".to_string()),
+            device_name: Some("OBS Virtual Camera".to_string()),
+        };
+        let current = device(0, "Built-in Camera", Some("id-builtin"));
+
+        let result = next_config(false, Some(&current), &saved);
+
+        assert_eq!(result, saved);
+    }
+
+    #[test]
+    fn next_config_confirmed_overwrites() {
+        let saved = GuiConfig {
+            device_id: Some("id-old".to_string()),
+            device_name: Some("Old Cam".to_string()),
+        };
+        let current = device(0, "Cam B", Some("id-b"));
+
+        let result = next_config(true, Some(&current), &saved);
+
+        assert_eq!(
+            result,
+            GuiConfig {
+                device_id: Some("id-b".to_string()),
+                device_name: Some("Cam B".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn next_config_confirmed_but_device_missing_keeps_prior_config() {
+        // `confirmed` alone isn't enough to persist — if `current` can't be
+        // resolved (e.g. the device list is momentarily empty) there is
+        // nothing trustworthy to overwrite the saved pin with.
+        let saved = GuiConfig {
+            device_id: Some("id-obs".to_string()),
+            device_name: Some("OBS Virtual Camera".to_string()),
+        };
+
+        let result = next_config(true, None, &saved);
+
+        assert_eq!(result, saved);
+    }
+
+    #[test]
+    fn next_config_empty_saved_config_and_confirmed_selection_persists_it() {
+        let saved = GuiConfig::default();
+        let current = device(0, "Cam A", Some("id-a"));
+
+        let result = next_config(true, Some(&current), &saved);
+
+        assert_eq!(
+            result,
+            GuiConfig {
+                device_id: Some("id-a".to_string()),
+                device_name: Some("Cam A".to_string())
+            }
+        );
     }
 }

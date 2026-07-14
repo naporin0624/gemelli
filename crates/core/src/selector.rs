@@ -142,6 +142,12 @@ fn resolve_query<'a>(
     query: &str,
     devices: &'a [DeviceInfo],
 ) -> Result<&'a DeviceInfo, SelectError> {
+    // An empty/whitespace-only query would otherwise reach the name-prefix tier, where an empty
+    // needle prefixes every device name — resolving the sole device, or reporting `Ambiguous`
+    // once there's more than one, instead of the `NoMatch` an unanswered prompt should be.
+    if query.trim().is_empty() {
+        return Err(SelectError::NoMatch { query: query.to_string(), available: devices.to_vec() });
+    }
     if let Some(outcome) = settle_tier(match_exact_name(query, devices), query) {
         return outcome;
     }
@@ -314,6 +320,26 @@ mod tests {
             .expect_err("ambiguous substring");
 
         assert!(matches!(error, SelectError::Ambiguous { .. }));
+    }
+
+    #[test]
+    fn query_empty_is_no_match() {
+        // An empty (or whitespace-only) query must not fall through to the
+        // name-prefix tier, where an empty needle prefixes every name —
+        // that would resolve the sole device below, or report `Ambiguous`
+        // once there's more than one, instead of the `NoMatch` this ought
+        // to be.
+        let devices = vec![device(0, "Cam A", Some("id-a"))];
+
+        for query in ["", "   "] {
+            let error = DeviceSelector::Query(query.to_string())
+                .resolve(&devices)
+                .expect_err("empty/whitespace query must not resolve");
+
+            assert!(matches!(error, SelectError::NoMatch { .. }), "query: {query:?}");
+            let message = error.to_string();
+            assert!(message.contains("Cam A"), "query: {query:?}");
+        }
     }
 
     #[test]
