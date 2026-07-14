@@ -4,4 +4,5 @@ pub mod capture;
 pub mod frame;
 pub mod pipeline;
 pub mod publish;
+pub mod selector;
 pub mod transform;

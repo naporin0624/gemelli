@@ -9,7 +9,7 @@ fn lists_devices_and_grabs_one_frame() {
     let devices = list_devices().expect("at least one camera connected");
     assert!(!devices.is_empty());
 
-    let mut source = NokhwaSource::open(devices[0].index, None).expect("camera opens");
+    let mut source = NokhwaSource::open(&devices[0], None).expect("camera opens");
     let frame = source.next_frame().expect("frame captured");
 
     assert!(frame.width() > 0);

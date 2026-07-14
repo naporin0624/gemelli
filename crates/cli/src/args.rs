@@ -10,8 +10,10 @@ use gemelli_core::transform::{CropRect, Flip, Rotation, ScaleSpec, TransformConf
 #[derive(Debug, Parser)]
 #[command(name = "gemelli")]
 pub struct Args {
-    /// Camera device index; omit to select interactively (TTY only)
-    pub device: Option<u32>,
+    /// Camera device: an index from --list-devices (e.g. 0), a device name or
+    /// unique fragment of it (e.g. "OBS"), or a unique ID; omit to select
+    /// interactively (TTY only)
+    pub device: Option<String>,
 
     #[arg(long)]
     pub list_devices: bool,
@@ -293,9 +295,17 @@ mod args_parse_tests {
         let Ok(args) = Args::try_parse_from(["prog", "0", "--rotate", "90", "--flip", "h"]) else {
             panic!("expected successful parse");
         };
-        assert_eq!(args.device, Some(0));
+        assert_eq!(args.device, Some("0".to_string()));
         assert_eq!(args.rotate, Rotation::R90);
         assert_eq!(args.flip, Some(Flip::Horizontal));
+    }
+
+    #[test]
+    fn parses_device_name() {
+        let Ok(args) = Args::try_parse_from(["prog", "OBS Virtual Camera"]) else {
+            panic!("expected successful parse");
+        };
+        assert_eq!(args.device, Some("OBS Virtual Camera".to_string()));
     }
 
     #[test]
