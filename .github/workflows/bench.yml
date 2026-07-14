@@ -150,6 +150,8 @@ jobs:
             echo "## Syphon / Spout benchmark"
             echo "_Commit: ${SHA}. GitHub runner GPUs are virtualized (Metal paravirtual / D3D possibly WARP) — treat numbers as relative comparisons between modes, not real-hardware absolutes._"
             echo
+            echo "_Reading the columns: 60fps is sustainable iff **wall µs/frame < 16667**. The Windows cpu column is process CPU time (all threads, incl. D3D driver workers), so cpu can exceed wall and CPU% @60fps can exceed 100% without meaning 60fps is impossible; the macOS cpu column is thread time (≤ wall)._"
+            echo
             echo "### macOS (Syphon)"
             if [ "$MACOS_RESULT" = "success" ] && [ -f artifacts/macos/bench-macos.md ]; then
               cat artifacts/macos/bench-macos.md
