@@ -9,6 +9,7 @@ pub mod cmd;
 pub mod layout;
 pub mod plist;
 pub mod readme;
+pub mod windows;
 
 use layout::AppBundlePaths;
 use plist::PlistFields;
