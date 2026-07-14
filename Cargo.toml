@@ -19,6 +19,15 @@ muda = "0.19.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# OBS Virtual Camera advertises only kCVPixelFormatType_32BGRA, which stock
+# nokhwa rejects during format enumeration ("Unknown FourCharCode 1111970369").
+# The fork's fix/bgra-support branch adds BGRA support.
+[patch.crates-io]
+nokhwa-bindings-macos = { git = "https://github.com/naporin0624/nokhwa", branch = "fix/bgra-support" }
+# The fork's bindings depend on nokhwa-core by path, so patch it too or the
+# dependency graph gets two nokhwa-core instances with incompatible types.
+nokhwa-core = { git = "https://github.com/naporin0624/nokhwa", branch = "fix/bgra-support" }
+
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
