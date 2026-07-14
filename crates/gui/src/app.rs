@@ -152,10 +152,21 @@ impl GemelliApp {
             }
         };
 
-        let (devices, banner) = match capture::list_devices() {
+        let (devices, list_banner) = match capture::list_devices() {
             Ok(devices) => (devices, None),
             Err(error) => (Vec::new(), Some(error.to_string())),
         };
+        // A failed device query already banners with the query's own error, which is more
+        // specific than anything `restore_selection` could say about a device list that never
+        // loaded — only attempt restore when the query actually produced a list to search.
+        let (selected_device, restore_banner) = if list_banner.is_none() {
+            let config = crate::config::load_config(cc.storage);
+            crate::config::restore_selection(&config, &devices)
+        } else {
+            (0, None)
+        };
+        let banner = list_banner.or(restore_banner);
+
         let (errors_tx, errors_rx) = mpsc::channel();
         let shared = Arc::new(SharedState::new(TransformConfig::default()));
 
@@ -165,7 +176,7 @@ impl GemelliApp {
             errors_tx,
             errors_rx,
             devices,
-            selected_device: 0,
+            selected_device,
             requested_fps: None,
             server_name: "gemelli".to_string(),
             rotation: Rotation::R0,
@@ -195,12 +206,20 @@ impl GemelliApp {
     }
 
     fn reload_devices(&mut self) {
+        // Captured before the requery so the selection can follow the device's stable id even
+        // if a plug/unplug elsewhere shuffled everyone's position in the new list.
+        let selected_id = self
+            .devices
+            .get(self.selected_device)
+            .and_then(|device| device.id.as_ref())
+            .map(|id| id.as_str().to_owned());
+
         match capture::list_devices() {
             Ok(devices) => {
                 self.devices = devices;
-                if self.selected_device >= self.devices.len() {
-                    self.selected_device = 0;
-                }
+                self.selected_device = selected_id
+                    .and_then(|id| crate::config::position_of_id(&self.devices, &id))
+                    .unwrap_or(0);
             }
             Err(error) => self.banner = Some(error.to_string()),
         }
@@ -228,7 +247,7 @@ impl GemelliApp {
             return;
         };
         let spec = WorkerSpec {
-            device_index: device.index,
+            device: device.clone(),
             requested_fps: self.requested_fps,
             server_name: self.server_name.clone(),
         };
@@ -587,6 +606,19 @@ impl GemelliApp {
 }
 
 impl eframe::App for GemelliApp {
+    /// Called by eframe on shutdown (and periodically) with the "persistence" feature enabled;
+    /// persists only the current device selection (see `config::GuiConfig`).
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        let selected = self.devices.get(self.selected_device);
+        let config = crate::config::GuiConfig {
+            device_id: selected
+                .and_then(|device| device.id.as_ref())
+                .map(|id| id.as_str().to_owned()),
+            device_name: selected.map(|device| device.name.clone()),
+        };
+        crate::config::save_config(storage, &config);
+    }
+
     // `logic` (state-only, called before painting) is optional and defaults to a no-op; all of
     // this app's state updates happen inline with painting inside `ui`, so `logic` is unused.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

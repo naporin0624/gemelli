@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 gemelli-core = { path = "../core" }
-eframe = { workspace = true }
+eframe = { workspace = true, features = ["persistence"] }
 egui = { workspace = true }
 thiserror = { workspace = true }
 arc-swap = { workspace = true }
