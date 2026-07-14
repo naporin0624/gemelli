@@ -1,5 +1,10 @@
 //! GUI entry point for the webcam -> Spout/Syphon sharing tool.
 
+// Suppress the Windows console window for release builds so launching the app
+// never flashes a terminal. Debug builds keep the console so `eprintln!`
+// diagnostics stay visible during development.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::process::ExitCode;
 
 mod app;
