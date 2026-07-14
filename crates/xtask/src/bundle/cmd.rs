@@ -60,6 +60,47 @@ pub fn tar_czf_args(output: &Path, chdir: &Path, entry: &str) -> Vec<OsString> {
     ]
 }
 
+/// `cargo build --release -p <pkg>...` — host-target release build of the given packages,
+/// used on Windows where a single-arch build (no `--target`) is all that's needed.
+pub fn cargo_build_release_args(packages: &[&str]) -> Vec<OsString> {
+    let mut args = vec![OsString::from("build"), OsString::from("--release")];
+    for package in packages {
+        args.push(OsString::from("-p"));
+        args.push(OsString::from(*package));
+    }
+    args
+}
+
+/// `tar -a -c -f <output> -C <chdir> <entry>` — bsdtar (bundled with Windows 10+) infers the
+/// zip format from the `.zip` extension via `-a`, avoiding a zip crate dependency.
+pub fn tar_zip_args(output: &Path, chdir: &Path, entry: &str) -> Vec<OsString> {
+    vec![
+        OsString::from("-a"),
+        OsString::from("-c"),
+        OsString::from("-f"),
+        output.as_os_str().to_os_string(),
+        OsString::from("-C"),
+        chdir.as_os_str().to_os_string(),
+        OsString::from(entry),
+    ]
+}
+
+/// `ISCC.exe /DMyAppVersion=<v> /DSourceDir=<dir> /DOutputDir=<dir> <script.iss>` — ISCC
+/// resolves relative paths against the .iss file's directory, not the CWD, so callers must
+/// pass absolute staging/output paths.
+pub fn iscc_args(version: &str, source_dir: &Path, output_dir: &Path, iss: &Path) -> Vec<OsString> {
+    let mut source_define = OsString::from("/DSourceDir=");
+    source_define.push(source_dir.as_os_str());
+    let mut output_define = OsString::from("/DOutputDir=");
+    output_define.push(output_dir.as_os_str());
+    vec![
+        OsString::from(format!("/DMyAppVersion={version}")),
+        source_define,
+        output_define,
+        iss.as_os_str().to_os_string(),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,6 +198,63 @@ mod tests {
                 OsString::from("-C"),
                 OsString::from("target/dist"),
                 OsString::from("gemelli-0.2.0-macos-universal"),
+            ]
+        );
+    }
+
+    #[test]
+    fn cargo_build_release_args_lists_each_package_after_its_own_flag() {
+        let args = cargo_build_release_args(&["gemelli-cli", "gemelli-gui"]);
+
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("build"),
+                OsString::from("--release"),
+                OsString::from("-p"),
+                OsString::from("gemelli-cli"),
+                OsString::from("-p"),
+                OsString::from("gemelli-gui"),
+            ]
+        );
+    }
+
+    #[test]
+    fn tar_zip_args_uses_auto_format_and_chdirs_before_naming_the_entry() {
+        let output = PathBuf::from("target/dist/gemelli-0.4.0-windows-x64.zip");
+        let chdir = PathBuf::from("target/dist");
+
+        let args = tar_zip_args(&output, &chdir, "gemelli-0.4.0-windows-x64");
+
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("-a"),
+                OsString::from("-c"),
+                OsString::from("-f"),
+                OsString::from("target/dist/gemelli-0.4.0-windows-x64.zip"),
+                OsString::from("-C"),
+                OsString::from("target/dist"),
+                OsString::from("gemelli-0.4.0-windows-x64"),
+            ]
+        );
+    }
+
+    #[test]
+    fn iscc_args_passes_defines_then_script_path() {
+        let source_dir = PathBuf::from("/work/target/dist/gemelli-0.4.0-windows-x64");
+        let output_dir = PathBuf::from("/work/target/dist");
+        let iss = PathBuf::from("/work/packaging/windows/gemelli.iss");
+
+        let args = iscc_args("0.4.0", &source_dir, &output_dir, &iss);
+
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("/DMyAppVersion=0.4.0"),
+                OsString::from("/DSourceDir=/work/target/dist/gemelli-0.4.0-windows-x64"),
+                OsString::from("/DOutputDir=/work/target/dist"),
+                OsString::from("/work/packaging/windows/gemelli.iss"),
             ]
         );
     }

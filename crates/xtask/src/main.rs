@@ -32,6 +32,8 @@ enum XtaskError {
     Stale(String),
     #[error("package `{0}` not found in `cargo metadata` output")]
     PackageNotFound(String),
+    #[error("`cargo xtask dist` supports only macOS and Windows hosts")]
+    UnsupportedHost,
 }
 
 #[derive(Parser)]

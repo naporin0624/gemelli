@@ -4,7 +4,120 @@ A small CLI and GUI tool that captures a webcam feed, applies rotate / flip / cr
 scale transforms, and publishes the result as a shared GPU texture — Syphon on macOS, Spout on
 Windows. Sister tool of [ravioli](https://github.com/naporin0624/ravioli).
 
-## Setup
+```
+webcam ──▶ gemelli (rotate / flip / crop / scale) ──▶ Syphon (macOS) / Spout (Windows) ──▶ Resolume / OBS / TouchDesigner …
+```
+
+## Install (prebuilt)
+
+gemelli ships unsigned prebuilt binaries for both platforms from the
+[GitHub Releases](../../releases) page — all artifacts are attached to the
+`gemelli-gui-v*` release. macOS builds are **universal2** (Apple Silicon + Intel);
+Windows builds are x64. Spout/Syphon support is compiled in — no separate runtime
+install is required on either platform.
+
+### macOS — GUI
+
+1. Download `gemelli-<version>-macos-universal.dmg` from the
+   [GitHub Releases](../../releases) page.
+2. Open the `.dmg` and drag `gemelli.app` into `/Applications`.
+3. Because the app is unsigned, Gatekeeper blocks the first launch. Either:
+   - right-click `gemelli.app` → **Open** and confirm the dialog, or
+   - clear the quarantine attribute from the terminal:
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/gemelli.app
+     ```
+4. On first capture, macOS prompts for camera permission — this is expected; the app declares
+   `NSCameraUsageDescription` ("gemelli shares your camera feed as a Syphon texture.") and needs
+   the permission granted to read any camera frames.
+
+### macOS — CLI
+
+1. Download and extract `gemelli-<version>-macos-universal.tar.gz` from the
+   [GitHub Releases](../../releases) page.
+2. Clear quarantine on the extracted directory (same unsigned-build reason as the GUI):
+   ```bash
+   xattr -dr com.apple.quarantine <extracted-dir>
+   ```
+3. Keep `Syphon.framework` next to the `gemelli` binary — the binary resolves it via a relative
+   rpath and will not run if the framework is moved elsewhere. The tarball also contains
+   `THIRD-PARTY-NOTICES` and a `README.txt` with these same instructions.
+4. Run it:
+   ```bash
+   cd <extracted-dir>
+   ./gemelli --help
+   ```
+
+### Windows
+
+1. Download `gemelli-<version>-windows-x64-setup.exe` from the
+   [GitHub Releases](../../releases) page and run it. It installs the GUI + CLI,
+   creates Start Menu shortcuts, and offers an optional desktop icon.
+2. The build is unsigned, so SmartScreen blocks the first run — dismiss it with
+   **More info → Run anyway**.
+3. Prefer not to install? `gemelli-<version>-windows-x64.zip` contains the same
+   `gemelli.exe` / `gemelli-gui.exe`, runnable from any directory.
+
+## Usage
+
+### CLI
+
+```
+gemelli [DEVICE_INDEX] [OPTIONS]
+```
+
+| Option | Values | Default | Description |
+|---|---|---|---|
+| `DEVICE_INDEX` | integer | interactive prompt (TTY) / error (non-TTY) | Camera device index; see `--list-devices` |
+| `--list-devices` | flag | — | List available cameras as `{index}: {name}` and exit |
+| `--rotate <N>` | `0`, `90`, `180`, `270` | `0` | Clockwise rotation |
+| `--flip <F>` | `h`, `v`, `hv` | no flip | Mirror horizontally, vertically, or both |
+| `--crop <SPEC>` | `WxH+X+Y`, e.g. `1280x720+320+180` | no crop | Crop before any other transform |
+| `--scale <SPEC>` | `WxH` or a positive factor, e.g. `960x540` or `0.5` | no scale | Resize, applied last |
+| `--server-name <NAME>` | string | `gemelli` | Name of the published Syphon (macOS) / Spout (Windows) server |
+| `--fps <N>` | positive integer (`0` rejected) | none: highest resolution, then best fps at that resolution | Prefers a format that exactly matches `N` fps; falls back to the highest-resolution format if no exact match exists (best-effort) |
+
+Transform order is always **crop → rotate → flip → scale**, regardless of the order options are
+given on the command line.
+
+Examples:
+```bash
+gemelli --list-devices
+gemelli 0 --rotate 90 --flip h --scale 0.5
+gemelli 0 --crop 1280x720+320+180 --server-name my-camera
+```
+
+Exit codes: `0` clean shutdown (including Ctrl+C) · `1` runtime error (printed to stderr) ·
+`2` CLI usage error (invalid/missing argument).
+
+### GUI
+
+Launch `gemelli.app` (macOS) or the gemelli Start Menu shortcut (Windows) — or run `cargo run -p
+gemelli-gui` from a source checkout.
+
+A sidebar/preview layout (see `docs/superpowers/specs/2026-07-08-gemelli-gui-design.md` for the
+full design) for adjusting transforms live while previewing the camera feed, instead of
+re-launching the CLI with new flags each time.
+
+| Control | Effect |
+|---|---|
+| Device combo + Refresh | Selects the capture device; Refresh re-queries attached cameras |
+| Rotate (0/90/180/270) | Clockwise rotation, applied after crop |
+| Flip (h / v) | Independent horizontal/vertical mirror toggles; both = `hv` |
+| Crop: Edit crop / Done | Switches the preview to the raw feed with a draggable crop rect |
+| Crop: Add crop / Clear crop | Seeds a centered half-frame crop, or removes the crop entirely |
+| Crop: W / H / X / Y fields | Numeric crop editing, synced live with the on-screen drag |
+| Scale: Off / Factor / WxH | Off (no resize), a 0.1–2.0x slider, or exact target dimensions |
+| Server name | Syphon/Spout server name; committing a change restarts the server under the new name |
+| Start / Stop | Begins/stops capture and Syphon publishing on the selected device |
+| Status bar | Input→output resolution, measured fps, and a publishing/stopped indicator |
+
+Transform order is the same as the CLI: **crop → rotate → flip → scale**. The GUI is an
+additional front end, not a replacement — `gemelli-cli` remains the headless path (e.g. for
+scripted/unattended launches), and both share the same `gemelli-core` transform and
+Syphon/Spout publish pipeline.
+
+## Build from source
 
 1. Install the toolchain via [mise](https://mise.jdx.dev/):
    ```bash
@@ -86,105 +199,9 @@ Then build/run as usual, e.g. `cargo run -p gemelli-cli -- --list-devices`. Publ
 a Spout sender named by `--server-name` (default `gemelli`), visible to any Spout receiver (e.g.
 OBS's Spout2 Capture source, or the Spout `SpoutReceiver` demo).
 
-## CLI usage
+### Packaging (bundle / dist)
 
-```
-gemelli [DEVICE_INDEX] [OPTIONS]
-```
-
-| Option | Values | Default | Description |
-|---|---|---|---|
-| `DEVICE_INDEX` | integer | interactive prompt (TTY) / error (non-TTY) | Camera device index; see `--list-devices` |
-| `--list-devices` | flag | — | List available cameras as `{index}: {name}` and exit |
-| `--rotate <N>` | `0`, `90`, `180`, `270` | `0` | Clockwise rotation |
-| `--flip <F>` | `h`, `v`, `hv` | no flip | Mirror horizontally, vertically, or both |
-| `--crop <SPEC>` | `WxH+X+Y`, e.g. `1280x720+320+180` | no crop | Crop before any other transform |
-| `--scale <SPEC>` | `WxH` or a positive factor, e.g. `960x540` or `0.5` | no scale | Resize, applied last |
-| `--server-name <NAME>` | string | `gemelli` | Name of the published Syphon (macOS) / Spout (Windows) server |
-| `--fps <N>` | positive integer (`0` rejected) | none: highest resolution, then best fps at that resolution | Prefers a format that exactly matches `N` fps; falls back to the highest-resolution format if no exact match exists (best-effort) |
-
-Transform order is always **crop → rotate → flip → scale**, regardless of the order options are
-given on the command line.
-
-Examples:
-```bash
-gemelli --list-devices
-gemelli 0 --rotate 90 --flip h --scale 0.5
-gemelli 0 --crop 1280x720+320+180 --server-name my-camera
-```
-
-Exit codes: `0` clean shutdown (including Ctrl+C) · `1` runtime error (printed to stderr) ·
-`2` CLI usage error (invalid/missing argument).
-
-## GUI usage
-
-```bash
-cargo run -p gemelli-gui
-```
-
-A sidebar/preview layout (see `docs/superpowers/specs/2026-07-08-gemelli-gui-design.md` for the
-full design) for adjusting transforms live while previewing the camera feed, instead of
-re-launching the CLI with new flags each time.
-
-| Control | Effect |
-|---|---|
-| Device combo + Refresh | Selects the capture device; Refresh re-queries attached cameras |
-| Rotate (0/90/180/270) | Clockwise rotation, applied after crop |
-| Flip (h / v) | Independent horizontal/vertical mirror toggles; both = `hv` |
-| Crop: Edit crop / Done | Switches the preview to the raw feed with a draggable crop rect |
-| Crop: Add crop / Clear crop | Seeds a centered half-frame crop, or removes the crop entirely |
-| Crop: W / H / X / Y fields | Numeric crop editing, synced live with the on-screen drag |
-| Scale: Off / Factor / WxH | Off (no resize), a 0.1–2.0x slider, or exact target dimensions |
-| Server name | Syphon/Spout server name; committing a change restarts the server under the new name |
-| Start / Stop | Begins/stops capture and Syphon publishing on the selected device |
-| Status bar | Input→output resolution, measured fps, and a publishing/stopped indicator |
-
-Transform order is the same as the CLI: **crop → rotate → flip → scale**. The GUI is an
-additional front end, not a replacement — `gemelli-cli` remains the headless path (e.g. for
-scripted/unattended launches), and both share the same `gemelli-core` transform and
-Syphon/Spout publish pipeline.
-
-## Install / 配布
-
-gemelli ships as unsigned, un-notarized **universal2** (Apple Silicon + Intel) macOS binaries.
-There is no packaged Windows release yet — `release.yml` only builds macOS artifacts — but Spout
-support is fully implemented and buildable from source; see "Windows (Spout)" under Setup above.
-
-### GUI (エンドユーザ)
-
-1. Download `gemelli-<version>-macos-universal.dmg` from the
-   [GitHub Releases](../../releases) page.
-2. Open the `.dmg` and drag `gemelli.app` into `/Applications`.
-3. Because the app is unsigned, Gatekeeper blocks the first launch. Either:
-   - right-click `gemelli.app` → **Open** and confirm the dialog, or
-   - clear the quarantine attribute from the terminal:
-     ```bash
-     xattr -dr com.apple.quarantine /Applications/gemelli.app
-     ```
-4. On first capture, macOS prompts for camera permission — this is expected; the app declares
-   `NSCameraUsageDescription` ("gemelli shares your camera feed as a Syphon texture.") and needs
-   the permission granted to read any camera frames.
-
-### CLI
-
-1. Download and extract `gemelli-<version>-macos-universal.tar.gz` from the
-   [GitHub Releases](../../releases) page.
-2. Clear quarantine on the extracted directory (same unsigned-build reason as the GUI):
-   ```bash
-   xattr -dr com.apple.quarantine <extracted-dir>
-   ```
-3. Keep `Syphon.framework` next to the `gemelli` binary — the binary resolves it via a relative
-   rpath and will not run if the framework is moved elsewhere. The tarball also contains
-   `THIRD-PARTY-NOTICES` and a `README.txt` with these same instructions.
-4. Run it:
-   ```bash
-   cd <extracted-dir>
-   ./gemelli --help
-   ```
-
-### 開発者 (ローカルビルド)
-
-With the Setup prerequisites above in place (Syphon.framework built from the submodule, fonts
+With the prerequisites above in place (Syphon.framework built from the submodule, fonts
 fetched via `scripts/fetch-fonts.sh`):
 
 ```bash
@@ -200,14 +217,20 @@ cargo xtask dist
 `target/dist/gemelli-<version>-macos-universal.tar.gz`, where `<version>` is `gemelli-gui`'s
 version from `cargo metadata`. Neither command signs or notarizes the output.
 
-## Manual verification checklist
+On Windows, `cargo xtask dist` instead writes `gemelli-<version>-windows-x64.zip` and
+`gemelli-<version>-windows-x64-setup.exe` (requires Inno Setup 6.3+; override the compiler
+location with the `ISCC_PATH` environment variable).
+
+## Development
+
+### Manual verification checklist
 
 The automatable parts of this checklist (build/test/clippy/fmt, `--list-devices`, a timed run
 with transforms + SIGINT, a timed GUI launch, and both negative paths) are re-run as part of
 every release; the visual steps require a human at a machine with a real camera and a Syphon
 client installed and are **not** automated.
 
-### CLI
+#### CLI
 
 - [ ] `cargo build --workspace`, `cargo test --workspace`,
       `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo fmt --all -- --check`
@@ -232,7 +255,7 @@ client installed and are **not** automated.
 - [ ] `cargo run -p gemelli-cli -- <index not in --list-devices output>` prints a clear
       "device index not found" error and exits `1`.
 
-### GUI (real camera + Syphon Recorder)
+#### GUI (real camera + Syphon Recorder)
 
 - [ ] `cargo run -p gemelli-gui` launches, stays alive (no panic, no stderr noise), and shows
       the sidebar/preview layout with the theme applied.
@@ -262,7 +285,7 @@ client installed and are **not** automated.
       disappears from the client's list (clean publisher drop, matching the CLI's Ctrl+C
       behavior).
 
-### Windows / Spout
+#### Windows / Spout
 
 Requires a real Windows machine (the `#[cfg(target_os = "windows")]` publisher path and the
 vendored SpoutDX/SpoutGL bridge are not exercised by macOS/Linux CI at all).
@@ -279,27 +302,7 @@ vendored SpoutDX/SpoutGL bridge are not exercised by macOS/Linux CI at all).
       rotate/flip/scale are reflected — same checks as the macOS/Syphon CLI row above.
 - [ ] Repeat the same visual check via `cargo run -p gemelli-gui`.
 
-## License
-
-MIT — see workspace `Cargo.toml` (`license = "MIT"`).
-
-This project vendors [Syphon-Framework](https://github.com/Syphon/Syphon-Framework) (via the
-`vendor/syphon-src` git submodule) as a build-time dependency of `gemelli-syphon`.
-Syphon-Framework is distributed under a BSD-style license; the full text is reproduced in
-[`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES) and ships with the submodule at
-`vendor/syphon-src/LICENSE`. No Syphon-Framework source is copied into this repository — it is
-fetched and built locally per the Setup steps above.
-
-The GUI embeds [LINE Seed JP](https://github.com/line/seed) (SIL Open Font License 1.1),
-fetched at build time by `scripts/fetch-fonts.sh` — see
-[`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No font file is committed to this repository.
-
-This project vendors the [Spout2 SDK](https://github.com/leadedge/Spout2) (BSD-2-Clause) as a
-build-time dependency of `gemelli-spout`, fetched into `vendor/Spout2/` by
-`scripts/fetch-spout.sh` — see [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No Spout2 source
-is copied into this repository.
-
-## License checks
+### License checks
 
 This repo enforces a permissive-only license policy on its Cargo dependency graph and keeps a
 generated third-party license manifest in sync with `Cargo.lock`. Both run in CI on every push
@@ -314,7 +317,7 @@ cargo deny check licenses
 cargo xtask gen-licenses
 ```
 
-## CI
+### CI
 
 Linux-hosted checks (`license-check.yml`) run automatically on every push and pull request.
 The platform lint/test jobs (`.github/workflows/macos.yml`, `.github/workflows/windows.yml`) do
@@ -339,3 +342,23 @@ Full local gates (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-
 warnings`, `cargo test --workspace`) are expected to have already passed on the target platform
 before pushing — these label-gated jobs are the pre-merge cross-check, not the first line of
 defense.
+
+## License
+
+MIT — see workspace `Cargo.toml` (`license = "MIT"`).
+
+This project vendors [Syphon-Framework](https://github.com/Syphon/Syphon-Framework) (via the
+`vendor/syphon-src` git submodule) as a build-time dependency of `gemelli-syphon`.
+Syphon-Framework is distributed under a BSD-style license; the full text is reproduced in
+[`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES) and ships with the submodule at
+`vendor/syphon-src/LICENSE`. No Syphon-Framework source is copied into this repository — it is
+fetched and built locally per the "Build from source" steps above.
+
+The GUI embeds [LINE Seed JP](https://github.com/line/seed) (SIL Open Font License 1.1),
+fetched at build time by `scripts/fetch-fonts.sh` — see
+[`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No font file is committed to this repository.
+
+This project vendors the [Spout2 SDK](https://github.com/leadedge/Spout2) (BSD-2-Clause) as a
+build-time dependency of `gemelli-spout`, fetched into `vendor/Spout2/` by
+`scripts/fetch-spout.sh` — see [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No Spout2 source
+is copied into this repository.

@@ -89,10 +89,19 @@ def draw() -> Image.Image:
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
-    dst = root / "crates" / "gui" / "assets" / "icon.png"
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    draw().save(dst)
-    print(f"wrote {dst}")
+    assets = root / "crates" / "gui" / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    img = draw()
+
+    png_dst = assets / "icon.png"
+    img.save(png_dst)
+    print(f"wrote {png_dst}")
+
+    # Multi-size .ico for the Windows installer / Explorer; Pillow resamples
+    # each size from the master render.
+    ico_dst = assets / "icon.ico"
+    img.save(ico_dst, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print(f"wrote {ico_dst}")
 
 
 if __name__ == "__main__":
