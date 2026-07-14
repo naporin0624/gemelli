@@ -1,31 +1,53 @@
-# NOTE: GitHub Actions does not cascade events triggered by the default
-# GITHUB_TOKEN. release-please (in release-please.yml) publishes GitHub
-# Releases using GITHUB_TOKEN, so its "release: published" event will NOT
-# fire this workflow automatically. To auto-trigger this workflow, either:
-#   1. give the release-please-action a `token:` input backed by a
-#      Personal Access Token (or GitHub App token) instead of GITHUB_TOKEN, or
-#   2. have a maintainer re-publish the release (edit + re-save it), or
-#   3. run this workflow manually via workflow_dispatch, passing the tag.
 name: release
 
+# release-please manages versioning from conventional commits: it opens a release
+# PR, and merging it creates the per-crate GitHub releases + tags. The build jobs
+# run in this same workflow via `needs:`, so they fire from the default
+# GITHUB_TOKEN — the token's event-cascade limitation only applies when one
+# workflow tries to trigger another. All distribution artifacts attach to the
+# `gemelli-gui-v*` release (its version is what the artifact names embed).
+
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build and upload artifacts for
+        description: Existing gemelli-gui-v* release tag to build and upload artifacts for
         required: true
         type: string
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  build-and-upload:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      gui_release_created: ${{ steps.release.outputs['crates/gui--release_created'] }}
+      gui_tag_name: ${{ steps.release.outputs['crates/gui--tag_name'] }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build-macos:
+    needs: [release-please]
+    # `!cancelled()` lets this run on workflow_dispatch, where release-please is skipped.
+    if: >-
+      !cancelled() && (
+        needs.release-please.outputs.gui_release_created == 'true' ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: macos-15
+    timeout-minutes: 60
+    name: Build (macOS universal)
     env:
-      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || needs.release-please.outputs.gui_tag_name }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
@@ -61,3 +83,48 @@ jobs:
 
       - name: Upload release artifacts
         run: gh release upload "$TAG" target/dist/*.dmg target/dist/*.tar.gz --clobber
+
+  build-windows:
+    needs: [release-please]
+    if: >-
+      !cancelled() && (
+        needs.release-please.outputs.gui_release_created == 'true' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: windows-latest
+    timeout-minutes: 60
+    name: Build (Windows x64)
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || needs.release-please.outputs.gui_tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+
+      - uses: Swatinem/rust-cache@v2
+
+      # gemelli-gui embeds LINE Seed JP via include_bytes! — see scripts/fetch-fonts.sh.
+      - name: Fetch fonts
+        shell: bash
+        run: ./scripts/fetch-fonts.sh
+
+      # gemelli-spout compiles SpoutDX + SpoutGL from the vendored Spout2 SDK
+      # — see scripts/fetch-spout.sh.
+      - name: Fetch Spout2 SDK
+        shell: bash
+        run: ./scripts/fetch-spout.sh
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      # Builds both release binaries, stages them with the icon + docs, zips the
+      # staging dir, and runs ISCC over packaging/windows/gemelli.iss.
+      - name: cargo xtask dist
+        run: cargo xtask dist
+
+      - name: Upload release artifacts
+        shell: bash
+        run: gh release upload "$TAG" target/dist/*.zip target/dist/*-setup.exe --clobber
