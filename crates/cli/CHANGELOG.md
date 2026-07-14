@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-cli-v0.2.1...gemelli-cli-v0.3.0) (2026-07-14)
+
+
+### Features
+
+* publish to Spout on Windows ([ad5062f](https://github.com/naporin0624/gemelli/commit/ad5062fcb57969a2a383949002fbb4581bb8ef2a))
+* select capture devices by name or unique ID ([ac397c9](https://github.com/naporin0624/gemelli/commit/ac397c909eb6fe151514c4be0ac857a91764c98a))
+* select capture devices by name or unique ID ([adb217e](https://github.com/naporin0624/gemelli/commit/adb217e51a4c27330919bfa6734849df5aca1633))
+* Spout (Windows) output ([013c10a](https://github.com/naporin0624/gemelli/commit/013c10afa66266599b3a8fce4cfe98f369c4885a))
+
 ## [0.2.1](https://github.com/naporin0624/gemelli/compare/gemelli-cli-v0.2.0...gemelli-cli-v0.2.1) (2026-07-08)
 
 ## [0.2.0](https://github.com/naporin0624/gemelli/compare/gemelli-cli-v0.1.0...gemelli-cli-v0.2.0) (2026-07-08)

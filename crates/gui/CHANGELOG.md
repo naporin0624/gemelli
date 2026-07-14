@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.3.0...gemelli-gui-v0.4.0) (2026-07-14)
+
+
+### Features
+
+* **gui:** tray residency & close-to-minimize ([22ae3ab](https://github.com/naporin0624/gemelli/commit/22ae3abd674e059182f977c9aa879ee363558322))
+* publish to Spout on Windows ([ad5062f](https://github.com/naporin0624/gemelli/commit/ad5062fcb57969a2a383949002fbb4581bb8ef2a))
+* select capture devices by name or unique ID ([ac397c9](https://github.com/naporin0624/gemelli/commit/ac397c909eb6fe151514c4be0ac857a91764c98a))
+* select capture devices by name or unique ID ([adb217e](https://github.com/naporin0624/gemelli/commit/adb217e51a4c27330919bfa6734849df5aca1633))
+* Spout (Windows) output ([013c10a](https://github.com/naporin0624/gemelli/commit/013c10afa66266599b3a8fce4cfe98f369c4885a))
+
+
+### Bug Fixes
+
+* **gui:** keep the saved camera pin when falling back at launch ([c120fc3](https://github.com/naporin0624/gemelli/commit/c120fc3625a903f2708e7e878e25fd195170e48f))
+* **gui:** poll tray/menu events in App::logic so the tray works while minimized ([6dc2ec3](https://github.com/naporin0624/gemelli/commit/6dc2ec352fd77a9a4db799ed69efefa14d53d2e5))
+* open BGRA-only cameras such as OBS Virtual Camera ([f0663f8](https://github.com/naporin0624/gemelli/commit/f0663f8566a1b63e2d543c85c281c1564583212b))
+
 ## [0.3.0](https://github.com/naporin0624/gemelli/compare/gemelli-gui-v0.2.0...gemelli-gui-v0.3.0) (2026-07-08)
 
 
