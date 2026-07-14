@@ -1950,6 +1950,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gemelli-spout"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "gemelli-core",
+ "libc",
+]
+
+[[package]]
 name = "gemelli-syphon"
 version = "0.3.0"
 dependencies = [
