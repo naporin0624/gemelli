@@ -105,6 +105,18 @@ pub struct GemelliApp {
 
     devices: Vec<DeviceInfo>,
     selected_device: usize,
+    /// `true` once the current `selected_device` reflects either a config
+    /// pin that was actually found (`config::restore_selection` resolved
+    /// it), an explicit sidebar pick this session, or a reload that
+    /// re-found the previously-selected device's id. `false` means it's an
+    /// unconfirmed fallback (device list empty at startup, saved id not
+    /// present, or a reload couldn't re-find it) — `save` must not let a
+    /// fallback like that overwrite `saved_config`.
+    confirmed_selection: bool,
+    /// The config as last loaded/persisted. `save` re-persists this
+    /// unchanged whenever `confirmed_selection` is false, instead of
+    /// deriving a config from the (untrustworthy) current selection.
+    saved_config: crate::config::GuiConfig,
     requested_fps: Option<u32>,
     server_name: String,
 
@@ -177,10 +189,30 @@ impl GemelliApp {
             repaint_ctx.request_repaint();
         }));
 
-        let (devices, banner) = match capture::list_devices() {
+        // Loaded unconditionally (even when device enumeration below fails) so `save` always has
+        // the real prior config to fall back to — see `saved_config`'s doc comment. Losing this
+        // to a `list_devices` error would otherwise mean the periodic/exit `save` re-persists a
+        // default (empty) config and wipes the user's actual saved pin.
+        let saved_config = crate::config::load_config(cc.storage);
+
+        let (devices, list_banner) = match capture::list_devices() {
             Ok(devices) => (devices, None),
             Err(error) => (Vec::new(), Some(error.to_string())),
         };
+        // A failed device query already banners with the query's own error, which is more
+        // specific than anything `restore_selection` could say about a device list that never
+        // loaded — only attempt restore when the query actually produced a list to search.
+        let (selected_device, restore_banner) = if list_banner.is_none() {
+            crate::config::restore_selection(&saved_config, &devices)
+        } else {
+            (0, None)
+        };
+        let banner = list_banner.or(restore_banner);
+        // Exactly the cases where nothing needed a fallback: no banner means either the saved id
+        // was found (or there was none to protect) — see the field's own doc comment for the
+        // full case breakdown.
+        let confirmed_selection = banner.is_none();
+
         let (errors_tx, errors_rx) = mpsc::channel();
         let shared = Arc::new(SharedState::new(TransformConfig::default()));
 
@@ -190,7 +222,9 @@ impl GemelliApp {
             errors_tx,
             errors_rx,
             devices,
-            selected_device: 0,
+            selected_device,
+            confirmed_selection,
+            saved_config,
             requested_fps: None,
             server_name: "gemelli".to_string(),
             rotation: Rotation::R0,
@@ -222,11 +256,27 @@ impl GemelliApp {
     }
 
     fn reload_devices(&mut self) {
+        // Captured before the requery so the selection can follow the device's stable id even
+        // if a plug/unplug elsewhere shuffled everyone's position in the new list.
+        let selected_id = self
+            .devices
+            .get(self.selected_device)
+            .and_then(|device| device.id.as_ref())
+            .map(|id| id.as_str().to_owned());
+
         match capture::list_devices() {
             Ok(devices) => {
                 self.devices = devices;
-                if self.selected_device >= self.devices.len() {
-                    self.selected_device = 0;
+                match selected_id.and_then(|id| crate::config::position_of_id(&self.devices, &id)) {
+                    Some(position) => self.selected_device = position,
+                    // The previously-selected device's id is gone from the fresh list (unplugged,
+                    // or there was no id/selection to begin with) — position 0 here is an
+                    // arbitrary fallback, not a re-affirmation of anything the user picked, so it
+                    // must not be trusted by `save` (see `confirmed_selection`'s doc comment).
+                    None => {
+                        self.selected_device = 0;
+                        self.confirmed_selection = false;
+                    }
                 }
             }
             Err(error) => self.banner = Some(error.to_string()),
@@ -255,7 +305,7 @@ impl GemelliApp {
             return;
         };
         let spec = WorkerSpec {
-            device_index: device.index,
+            device: device.clone(),
             requested_fps: self.requested_fps,
             server_name: self.server_name.clone(),
         };
@@ -415,8 +465,14 @@ impl GemelliApp {
                 if sidebar::refresh_button(ui) {
                     self.reload_devices();
                 }
-                if device_changed && self.worker.is_some() {
-                    self.start_worker();
+                if device_changed {
+                    // A combo-box pick is by definition an explicit user choice this session —
+                    // worth persisting even if the prior selection arrived via an unconfirmed
+                    // fallback.
+                    self.confirmed_selection = true;
+                    if self.worker.is_some() {
+                        self.start_worker();
+                    }
                 }
             });
         });
@@ -647,6 +703,18 @@ impl eframe::App for GemelliApp {
     // when they matter most: while the window is minimized.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_native_events(ctx);
+    }
+
+    /// Called by eframe on shutdown (and periodically, every ~30s) with the "persistence"
+    /// feature enabled; persists only the current device selection (see `config::GuiConfig`).
+    /// Because this runs on a timer with no user action involved, it must never let an
+    /// unconfirmed fallback selection (see `confirmed_selection`) clobber a still-meaningful
+    /// pin from an earlier session — `config::next_config` makes that call.
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        let current = self.devices.get(self.selected_device);
+        self.saved_config =
+            crate::config::next_config(self.confirmed_selection, current, &self.saved_config);
+        crate::config::save_config(storage, &self.saved_config);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

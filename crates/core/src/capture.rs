@@ -4,6 +4,7 @@ use nokhwa::{Camera, NokhwaError};
 use thiserror::Error;
 
 use crate::frame::Frame;
+use crate::selector::{DeviceId, device_line};
 
 pub trait CaptureSource {
     fn next_frame(&mut self) -> Result<Frame, CaptureError>;
@@ -13,16 +14,15 @@ pub trait CaptureSource {
 pub struct DeviceInfo {
     pub index: u32,
     pub name: String,
+    pub id: Option<DeviceId>,
 }
 
 #[derive(Debug, Error)]
 pub enum CaptureError {
     #[error("no capture devices found")]
     NoDevices,
-    #[error("device index {index} not found ({available} devices available)")]
-    DeviceNotFound { index: u32, available: usize },
-    #[error("failed to open device {index}: {reason}")]
-    OpenFailed { index: u32, reason: String },
+    #[error("failed to open device {device}: {reason}")]
+    OpenFailed { device: String, reason: String },
     #[error("failed to read frame: {reason}")]
     FrameRead { reason: String },
     #[error("unsupported camera pixel format: {format}")]
@@ -44,12 +44,8 @@ fn rgb_to_bgra(rgb: &[u8], width: u32, height: u32) -> Vec<u8> {
     bgra
 }
 
-fn index_number(index: &CameraIndex) -> u32 {
-    index.as_index().unwrap_or(0)
-}
-
-fn to_device_info(info: &CameraInfo) -> DeviceInfo {
-    DeviceInfo { index: index_number(info.index()), name: info.human_name() }
+fn to_device_info(position: u32, info: &CameraInfo) -> DeviceInfo {
+    DeviceInfo { index: position, name: info.human_name(), id: DeviceId::new(&info.misc()) }
 }
 
 fn devices_from(infos: Vec<CameraInfo>) -> Result<Vec<DeviceInfo>, CaptureError> {
@@ -57,11 +53,25 @@ fn devices_from(infos: Vec<CameraInfo>) -> Result<Vec<DeviceInfo>, CaptureError>
         return Err(CaptureError::NoDevices);
     }
 
-    Ok(infos.iter().map(to_device_info).collect())
+    Ok(infos
+        .iter()
+        .enumerate()
+        .map(|(position, info)| to_device_info(u32::try_from(position).unwrap_or(u32::MAX), info))
+        .collect())
 }
 
-fn open_failed(index: u32, error: NokhwaError) -> CaptureError {
-    CaptureError::OpenFailed { index, reason: error.to_string() }
+/// Picks the open path for a device: a stable id opens via
+/// `AVCaptureDevice.deviceWithUniqueID` and survives index reshuffles; a
+/// missing id falls back to the (possibly unstable) enumeration position.
+fn camera_index(device: &DeviceInfo) -> CameraIndex {
+    match &device.id {
+        Some(id) => CameraIndex::String(id.as_str().to_owned()),
+        None => CameraIndex::Index(device.index),
+    }
+}
+
+fn open_failed(device: &DeviceInfo, error: NokhwaError) -> CaptureError {
+    CaptureError::OpenFailed { device: device_line(device), reason: error.to_string() }
 }
 
 fn frame_read_failed(error: NokhwaError) -> CaptureError {
@@ -103,25 +113,28 @@ impl NokhwaSource {
     /// camera with the first one that succeeds. If every candidate fails, the last
     /// attempt's error is reported since it best reflects the final, most-relaxed
     /// request that the camera still refused.
-    pub fn open(index: u32, requested_fps: Option<u32>) -> Result<Self, CaptureError> {
+    ///
+    /// Callers resolve a `DeviceSelector` to a `DeviceInfo` first; this only opens
+    /// the already-chosen device.
+    pub fn open(device: &DeviceInfo, requested_fps: Option<u32>) -> Result<Self, CaptureError> {
         let mut attempts = format_candidates(requested_fps).into_iter();
         let Some(mut format_type) = attempts.next() else {
             return Err(CaptureError::OpenFailed {
-                index,
+                device: device_line(device),
                 reason: "no capture format candidates".to_string(),
             });
         };
 
         loop {
             let requested = RequestedFormat::new::<RgbFormat>(format_type);
-            match Camera::new(CameraIndex::Index(index), requested) {
+            match Camera::new(camera_index(device), requested) {
                 Ok(mut camera) => {
-                    camera.open_stream().map_err(|error| open_failed(index, error))?;
+                    camera.open_stream().map_err(|error| open_failed(device, error))?;
                     return Ok(Self { camera });
                 }
                 Err(error) => {
                     let Some(next_format) = attempts.next() else {
-                        return Err(open_failed(index, error));
+                        return Err(open_failed(device, error));
                     };
                     format_type = next_format;
                 }
@@ -146,10 +159,11 @@ impl CaptureSource for NokhwaSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureError, CaptureSource, DeviceInfo, devices_from, format_candidates,
-        frame_read_failed, index_number, open_failed, query_failed, rgb_to_bgra, to_device_info,
+        CaptureError, CaptureSource, DeviceInfo, camera_index, devices_from, format_candidates,
+        frame_read_failed, open_failed, query_failed, rgb_to_bgra, to_device_info,
     };
     use crate::frame::Frame;
+    use crate::selector::DeviceId;
 
     struct RecordingSource {
         frames: Vec<Frame>,
@@ -181,7 +195,7 @@ mod tests {
 
     #[test]
     fn device_info_holds_index_and_name() {
-        let info = DeviceInfo { index: 2, name: "Logi C920".to_string() };
+        let info = DeviceInfo { index: 2, name: "Logi C920".to_string(), id: None };
 
         assert_eq!(info.index, 2);
         assert_eq!(info.name, "Logi C920");
@@ -200,31 +214,38 @@ mod tests {
     }
 
     #[test]
-    fn index_number_reads_numeric_index() {
-        let index = nokhwa::utils::CameraIndex::Index(3);
+    fn to_device_info_carries_unique_id() {
+        let info = nokhwa::utils::CameraInfo::new(
+            "OBS Virtual Camera",
+            "USB Video Class",
+            "7626645E-1E13-4E6F-8B77-71B2A5B5F1C7",
+            nokhwa::utils::CameraIndex::Index(1),
+        );
 
-        assert_eq!(index_number(&index), 3);
+        let device = to_device_info(0, &info);
+
+        assert_eq!(
+            device,
+            DeviceInfo {
+                index: 0,
+                name: "OBS Virtual Camera".to_string(),
+                id: DeviceId::new("7626645E-1E13-4E6F-8B77-71B2A5B5F1C7"),
+            }
+        );
     }
 
     #[test]
-    fn index_number_falls_back_to_zero_for_non_numeric_index() {
-        let index = nokhwa::utils::CameraIndex::String("ipcam-1".to_string());
-
-        assert_eq!(index_number(&index), 0);
-    }
-
-    #[test]
-    fn to_device_info_copies_index_and_name() {
+    fn to_device_info_empty_misc_is_none() {
         let info = nokhwa::utils::CameraInfo::new(
             "Logi C920",
             "USB Video Class",
             "",
-            nokhwa::utils::CameraIndex::Index(1),
+            nokhwa::utils::CameraIndex::Index(0),
         );
 
-        let device = to_device_info(&info);
+        let device = to_device_info(0, &info);
 
-        assert_eq!(device, DeviceInfo { index: 1, name: "Logi C920".to_string() });
+        assert_eq!(device.id, None);
     }
 
     #[test]
@@ -235,10 +256,20 @@ mod tests {
     }
 
     #[test]
-    fn devices_from_maps_every_entry() {
+    fn devices_from_assigns_positions() {
         let infos = vec![
-            nokhwa::utils::CameraInfo::new("Cam A", "", "", nokhwa::utils::CameraIndex::Index(0)),
-            nokhwa::utils::CameraInfo::new("Cam B", "", "", nokhwa::utils::CameraIndex::Index(1)),
+            nokhwa::utils::CameraInfo::new(
+                "Cam A",
+                "",
+                "id-a",
+                nokhwa::utils::CameraIndex::String("id-a".to_string()),
+            ),
+            nokhwa::utils::CameraInfo::new(
+                "Cam B",
+                "",
+                "id-b",
+                nokhwa::utils::CameraIndex::String("id-b".to_string()),
+            ),
         ];
 
         let devices = devices_from(infos).expect("non-empty list maps");
@@ -246,20 +277,48 @@ mod tests {
         assert_eq!(
             devices,
             vec![
-                DeviceInfo { index: 0, name: "Cam A".to_string() },
-                DeviceInfo { index: 1, name: "Cam B".to_string() },
+                DeviceInfo { index: 0, name: "Cam A".to_string(), id: DeviceId::new("id-a") },
+                DeviceInfo { index: 1, name: "Cam B".to_string(), id: DeviceId::new("id-b") },
             ]
         );
     }
 
     #[test]
-    fn open_failed_wraps_nokhwa_error_text() {
+    fn camera_index_prefers_id() {
+        let device =
+            DeviceInfo { index: 3, name: "Cam".to_string(), id: DeviceId::new("uuid-123") };
+
+        let index = camera_index(&device);
+
+        assert_eq!(index, nokhwa::utils::CameraIndex::String("uuid-123".to_string()));
+    }
+
+    #[test]
+    fn camera_index_falls_back() {
+        let device = DeviceInfo { index: 2, name: "Cam".to_string(), id: None };
+
+        let index = camera_index(&device);
+
+        assert_eq!(index, nokhwa::utils::CameraIndex::Index(2));
+    }
+
+    #[test]
+    fn open_failed_labels_device() {
+        let device =
+            DeviceInfo { index: 0, name: "Logi C920".to_string(), id: DeviceId::new("uuid-1") };
         let error =
             nokhwa::NokhwaError::OpenDeviceError("0".to_string(), "device busy".to_string());
 
-        let mapped = open_failed(0, error);
+        let mapped = open_failed(&device, error);
 
-        assert!(matches!(mapped, CaptureError::OpenFailed { index: 0, .. }));
+        match mapped {
+            CaptureError::OpenFailed { device: label, reason } => {
+                assert!(label.contains("Logi C920"));
+                assert!(label.contains("uuid-1"));
+                assert!(reason.contains("device busy"));
+            }
+            other => panic!("expected OpenFailed, got {other:?}"),
+        }
     }
 
     #[test]

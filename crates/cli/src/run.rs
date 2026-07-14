@@ -7,9 +7,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use gemelli_core::capture::{CaptureError, DeviceInfo, NokhwaSource, list_devices};
 use gemelli_core::pipeline::{PipelineError, run_pipeline};
 use gemelli_core::publish::{PublishError, TexturePublisher};
+use gemelli_core::selector::{SelectError, format_devices};
 
 use crate::args::Args;
-use crate::select::{choose_device, format_devices};
+use crate::select::{choose_device, parse_device};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
@@ -19,6 +20,8 @@ pub enum CliError {
     Publish(#[from] PublishError),
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
+    #[error(transparent)]
+    Select(#[from] SelectError),
     #[error("no device specified and stdin is not a TTY")]
     NonInteractive,
     #[error("device selection cancelled")]
@@ -36,33 +39,27 @@ pub enum CliError {
     CtrlcSetup(#[from] ctrlc::Error),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceResolution {
-    Index(u32),
+    Device(DeviceInfo),
     NeedsPrompt,
 }
 
 pub fn resolve_device(
-    requested: Option<u32>,
+    requested: Option<&str>,
     available: &[DeviceInfo],
     interactive: bool,
 ) -> Result<DeviceResolution, CliError> {
-    let Some(index) = requested else {
+    let Some(text) = requested else {
         if interactive {
             return Ok(DeviceResolution::NeedsPrompt);
         }
         return Err(CliError::NonInteractive);
     };
 
-    let is_available = available.iter().any(|device| device.index == index);
-    if !is_available {
-        return Err(CliError::Capture(CaptureError::DeviceNotFound {
-            index,
-            available: available.len(),
-        }));
-    }
+    let device = parse_device(text).resolve(available)?;
 
-    Ok(DeviceResolution::Index(index))
+    Ok(DeviceResolution::Device(device.clone()))
 }
 
 #[cfg(target_os = "macos")]
@@ -85,13 +82,13 @@ pub fn run(args: Args) -> Result<(), CliError> {
     }
 
     let interactive = std::io::stdin().is_terminal();
-    let index = match resolve_device(args.device, &devices, interactive)? {
-        DeviceResolution::Index(index) => index,
+    let device = match resolve_device(args.device.as_deref(), &devices, interactive)? {
+        DeviceResolution::Device(device) => device,
         DeviceResolution::NeedsPrompt => choose_device(&devices)?,
     };
 
     let mut publisher = create_publisher(&args.server_name)?;
-    let mut source = NokhwaSource::open(index, args.fps)?;
+    let mut source = NokhwaSource::open(&device, args.fps)?;
     let config = args.transform_config();
 
     let stop = Arc::new(AtomicBool::new(false));
@@ -109,32 +106,39 @@ mod resolve_device_tests {
 
     fn devices() -> Vec<DeviceInfo> {
         vec![
-            DeviceInfo { index: 0, name: "FaceTime HD Camera".to_string() },
-            DeviceInfo { index: 1, name: "USB Webcam".to_string() },
+            DeviceInfo { index: 0, name: "FaceTime HD Camera".to_string(), id: None },
+            DeviceInfo { index: 1, name: "USB Webcam".to_string(), id: None },
         ]
     }
 
     #[test]
-    fn resolves_requested_index_when_available() {
-        let Ok(DeviceResolution::Index(index)) = resolve_device(Some(1), &devices(), true) else {
-            panic!("expected DeviceResolution::Index(1)");
+    fn resolves_requested_query_when_available() {
+        let Ok(DeviceResolution::Device(device)) =
+            resolve_device(Some("USB Webcam"), &devices(), true)
+        else {
+            panic!("expected DeviceResolution::Device");
         };
-        assert_eq!(index, 1);
+        assert_eq!(device.index, 1);
     }
 
     #[test]
     fn rejects_requested_index_not_in_device_list() {
-        let Err(error) = resolve_device(Some(5), &devices(), true) else {
+        let Err(error) = resolve_device(Some("5"), &devices(), true) else {
             panic!("expected error for out-of-range index");
         };
-        assert!(matches!(
-            error,
-            CliError::Capture(CaptureError::DeviceNotFound { index: 5, available: 2 })
-        ));
+        assert!(matches!(error, CliError::Select(SelectError::IndexOutOfRange { index: 5, .. })));
     }
 
     #[test]
-    fn needs_prompt_when_no_index_and_interactive() {
+    fn passes_through_select_error() {
+        let Err(error) = resolve_device(Some("nonexistent"), &devices(), true) else {
+            panic!("expected error for unmatched query");
+        };
+        assert!(matches!(error, CliError::Select(SelectError::NoMatch { .. })));
+    }
+
+    #[test]
+    fn needs_prompt_when_no_selector_and_interactive() {
         assert!(matches!(
             resolve_device(None, &devices(), true),
             Ok(DeviceResolution::NeedsPrompt)
@@ -142,7 +146,7 @@ mod resolve_device_tests {
     }
 
     #[test]
-    fn errors_when_no_index_and_not_interactive() {
+    fn errors_when_no_selector_and_not_interactive() {
         assert!(matches!(resolve_device(None, &devices(), false), Err(CliError::NonInteractive)));
     }
 }
@@ -183,7 +187,7 @@ mod run_smoke_tests {
                 then Ctrl+C after a few seconds and confirm it exits 0"]
     fn run_smoke_test() {
         let args = Args {
-            device: Some(0),
+            device: Some("0".to_string()),
             list_devices: false,
             rotate: gemelli_core::transform::Rotation::R0,
             flip: None,

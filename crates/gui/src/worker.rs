@@ -167,7 +167,7 @@ fn open_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, Publis
 /// worker and calls `spawn_worker` again with a new spec rather than
 /// mutating a running one.
 pub struct WorkerSpec {
-    pub device_index: u32,
+    pub device: gemelli_core::capture::DeviceInfo,
     pub requested_fps: Option<u32>,
     pub server_name: String,
 }
@@ -184,16 +184,14 @@ pub fn spawn_worker(
     let thread_stop = Arc::clone(&stop);
 
     let join = std::thread::spawn(move || {
-        let mut source = match gemelli_core::capture::NokhwaSource::open(
-            spec.device_index,
-            spec.requested_fps,
-        ) {
-            Ok(source) => source,
-            Err(error) => {
-                let _ = errors.send(WorkerError::Capture(error));
-                return;
-            }
-        };
+        let mut source =
+            match gemelli_core::capture::NokhwaSource::open(&spec.device, spec.requested_fps) {
+                Ok(source) => source,
+                Err(error) => {
+                    let _ = errors.send(WorkerError::Capture(error));
+                    return;
+                }
+            };
 
         let mut publisher = match open_publisher(&spec.server_name) {
             Ok(publisher) => publisher,
@@ -507,34 +505,44 @@ mod spawn_worker_tests {
     use std::sync::Arc;
     use std::sync::mpsc;
 
+    use gemelli_core::capture::DeviceInfo;
+    use gemelli_core::selector::DeviceId;
     use gemelli_core::transform::TransformConfig;
 
     use super::{SharedState, WorkerSpec, spawn_worker};
 
+    fn fake_device() -> DeviceInfo {
+        DeviceInfo {
+            index: 9999,
+            name: "nonexistent test device".to_string(),
+            id: DeviceId::new("gemelli-test-bogus-id"),
+        }
+    }
+
     #[test]
     fn worker_spec_holds_the_given_fields() {
         let spec = WorkerSpec {
-            device_index: 2,
+            device: fake_device(),
             requested_fps: Some(30),
             server_name: "gemelli".to_string(),
         };
 
-        assert_eq!(spec.device_index, 2);
+        assert_eq!(spec.device, fake_device());
         assert_eq!(spec.requested_fps, Some(30));
         assert_eq!(spec.server_name, "gemelli");
     }
 
     #[test]
-    #[ignore = "opens a real camera device (index 9999 is out of range on \
-                every real machine, but nokhwa still touches the OS camera \
-                subsystem to discover that, which is flaky/slow in CI); \
-                run manually with `cargo test -p gemelli-gui \
+    #[ignore = "opens a real camera device (a fabricated device id is out of \
+                range on every real machine, but nokhwa still touches the OS \
+                camera subsystem to discover that, which is flaky/slow in \
+                CI); run manually with `cargo test -p gemelli-gui \
                 spawn_worker_open_failure -- --ignored`"]
     fn spawn_worker_open_failure() {
         let shared = Arc::new(SharedState::new(TransformConfig::default()));
         let (tx, rx) = mpsc::channel();
         let spec = WorkerSpec {
-            device_index: 9999,
+            device: fake_device(),
             requested_fps: None,
             server_name: "gemelli-test".to_string(),
         };
@@ -562,7 +570,7 @@ mod spawn_worker_tests {
         let shared = Arc::new(SharedState::new(TransformConfig::default()));
         let (tx, _rx) = mpsc::channel();
         let spec = WorkerSpec {
-            device_index: 0,
+            device: DeviceInfo { index: 0, name: "default camera".to_string(), id: None },
             requested_fps: None,
             server_name: "gemelli-worker-smoke".to_string(),
         };
