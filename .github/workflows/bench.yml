@@ -22,6 +22,14 @@ jobs:
     runs-on: macos-15
     name: Syphon bench (macOS)
     timeout-minutes: 40
+    # The implicit default shell on non-Windows runners (no `shell:` set) is
+    # `bash -e {0}` *without* `-o pipefail`, so `cargo run | tee file` would
+    # report success even if `cargo run` crashes partway through — the tee
+    # step still exits 0. Force pipefail so a mid-run crash correctly fails
+    # the job instead of silently truncating the bench output.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
