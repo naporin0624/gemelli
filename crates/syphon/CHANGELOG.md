@@ -1,5 +1,7 @@
 # Changelog
 
+## [0.4.1](https://github.com/naporin0624/gemelli/compare/gemelli-syphon-v0.4.0...gemelli-syphon-v0.4.1) (2026-07-14)
+
 ## [0.4.0](https://github.com/naporin0624/gemelli/compare/gemelli-syphon-v0.3.0...gemelli-syphon-v0.4.0) (2026-07-14)
 
 
