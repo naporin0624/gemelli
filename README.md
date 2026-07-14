@@ -1,10 +1,8 @@
 # gemelli
 
-gemelli captures a webcam feed, applies rotate / flip / crop / scale transforms, and publishes
-the result as a shared GPU texture — Syphon on macOS, Spout on Windows — for VJ and streaming
-software such as Resolume, OBS, or TouchDesigner to receive. It ships as both a CLI and a GUI,
-built on the same `gemelli-core` transform and publish pipeline. Sister tool of
-[ravioli](https://github.com/naporin0624/ravioli).
+A small CLI and GUI tool that captures a webcam feed, applies rotate / flip / crop /
+scale transforms, and publishes the result as a shared GPU texture — Syphon on macOS, Spout on
+Windows. Sister tool of [ravioli](https://github.com/naporin0624/ravioli).
 
 ```
 webcam ──▶ gemelli (rotate / flip / crop / scale) ──▶ Syphon (macOS) / Spout (Windows) ──▶ Resolume / OBS / TouchDesigner …
