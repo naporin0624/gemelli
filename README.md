@@ -146,9 +146,11 @@ Syphon/Spout publish pipeline.
 
 ## Install / 配布
 
-gemelli ships as unsigned, un-notarized **universal2** (Apple Silicon + Intel) macOS binaries.
-There is no packaged Windows release yet — `release.yml` only builds macOS artifacts — but Spout
-support is fully implemented and buildable from source; see "Windows (Spout)" under Setup above.
+gemelli ships unsigned prebuilt binaries for both platforms from the
+[GitHub Releases](../../releases) page — all artifacts are attached to the
+`gemelli-gui-v*` release. macOS builds are **universal2** (Apple Silicon + Intel);
+Windows builds are x64. Spout/Syphon support is compiled in — no separate runtime
+install is required on either platform.
 
 ### GUI (エンドユーザ)
 
@@ -182,6 +184,16 @@ support is fully implemented and buildable from source; see "Windows (Spout)" un
    ./gemelli --help
    ```
 
+### Windows
+
+1. Download `gemelli-<version>-windows-x64-setup.exe` from the
+   [GitHub Releases](../../releases) page and run it. It installs the GUI + CLI,
+   creates Start Menu shortcuts, and offers an optional desktop icon.
+2. The build is unsigned, so SmartScreen blocks the first run — dismiss it with
+   **More info → Run anyway**.
+3. Prefer not to install? `gemelli-<version>-windows-x64.zip` contains the same
+   `gemelli.exe` / `gemelli-gui.exe`, runnable from any directory.
+
 ### 開発者 (ローカルビルド)
 
 With the Setup prerequisites above in place (Syphon.framework built from the submodule, fonts
@@ -199,6 +211,10 @@ cargo xtask dist
 `target/dist/gemelli-<version>-macos-universal.dmg` and
 `target/dist/gemelli-<version>-macos-universal.tar.gz`, where `<version>` is `gemelli-gui`'s
 version from `cargo metadata`. Neither command signs or notarizes the output.
+
+On Windows, `cargo xtask dist` instead writes `gemelli-<version>-windows-x64.zip` and
+`gemelli-<version>-windows-x64-setup.exe` (requires Inno Setup 6; override the compiler
+location with the `ISCC_PATH` environment variable).
 
 ## Manual verification checklist
 
