@@ -4,6 +4,11 @@
 //! publish throughput (wall time, including the Syphon command-buffer
 //! commit — not pure memcpy), single-core CPU% at 60 fps, and CPU-time
 //! speedup vs PerFrameCopy.
+//!
+//! Set `BENCH_FORMAT=markdown` to print a GitHub-flavored-markdown heading
+//! and table per case instead of the default aligned-text tables (e.g. for
+//! posting results as a PR comment from CI). The default output is
+//! unaffected by this switch.
 
 #[cfg(not(target_os = "macos"))]
 fn main() {
@@ -16,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let modes =
         [("PerFrameCopy", SendMode::PerFrameCopy), ("PersistentCopy", SendMode::PersistentCopy)];
+    let format = BenchFormat::from_env();
 
     // (label, width, height, frames, warmup)
     let cases: [(&str, u32, u32, u32, u32); 3] = [
@@ -25,9 +31,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for (label, width, height, frames, warmup) in cases {
-        bench_resolution(label, width, height, frames, warmup, &modes)?;
+        bench_resolution(label, width, height, frames, warmup, &modes, format)?;
     }
     Ok(())
+}
+
+/// Output style for `bench_resolution`, selected once at start-up via the
+/// `BENCH_FORMAT` env var. Kept as its own type (rather than a bare bool) so
+/// call sites read as intent, not a flag, and so a third format can be added
+/// without renaming a `markdown: bool` parameter everywhere.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BenchFormat {
+    /// The original aligned-text tables (default; byte-identical to before
+    /// this switch existed).
+    Text,
+    /// GitHub-flavored markdown: one `###` heading and one table per case.
+    Markdown,
+}
+
+#[cfg(target_os = "macos")]
+impl BenchFormat {
+    /// Reads `BENCH_FORMAT` from the environment; any value other than
+    /// exactly `"markdown"` (including unset) selects `Text`.
+    fn from_env() -> Self {
+        match std::env::var("BENCH_FORMAT") {
+            Ok(value) if value == "markdown" => BenchFormat::Markdown,
+            _ => BenchFormat::Text,
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -38,6 +70,7 @@ fn bench_resolution(
     frames: u32,
     warmup: u32,
     modes: &[(&str, gemelli_syphon::SendMode)],
+    format: BenchFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use gemelli_core::frame::Frame;
     use gemelli_syphon::{SyphonPublisher, metrics};
@@ -54,17 +87,28 @@ fn bench_resolution(
     }
     let frame = Frame::new(width, height, buf)?;
 
-    println!();
-    println!("== Syphon output CPU benchmark: {label} ==");
-    println!(
-        "resolution : {width}x{height}  ({:.2} MB/frame, BGRA)",
-        f64::from(bytes_per_frame) / 1e6
-    );
-    println!("frames     : {frames} (warmup {warmup})");
-    println!(
-        "{:<20} {:>12} {:>12} {:>12} {:>12} {:>12}",
-        "mode", "wall us/f", "cpu us/f", "MB/s", "CPU%@60", "speedup"
-    );
+    match format {
+        BenchFormat::Text => {
+            println!();
+            println!("== Syphon output CPU benchmark: {label} ==");
+            println!(
+                "resolution : {width}x{height}  ({:.2} MB/frame, BGRA)",
+                f64::from(bytes_per_frame) / 1e6
+            );
+            println!("frames     : {frames} (warmup {warmup})");
+            println!(
+                "{:<20} {:>12} {:>12} {:>12} {:>12} {:>12}",
+                "mode", "wall us/f", "cpu us/f", "MB/s", "CPU%@60", "speedup"
+            );
+        }
+        BenchFormat::Markdown => {
+            println!();
+            println!("### {label} ({width}x{height}, {frames} frames)");
+            println!();
+            println!("| mode | wall µs/frame | cpu µs/frame | MB/s | CPU% @60fps | speedup |");
+            println!("| --- | --- | --- | --- | --- | --- |");
+        }
+    }
 
     // CPU time per frame for each mode; index 0 is the PerFrameCopy baseline.
     let mut baseline_cpu = Duration::ZERO;
@@ -97,9 +141,19 @@ fn bench_resolution(
         }
         let speedup = metrics::speedup_ratio(baseline_cpu, cpu);
 
-        println!(
-            "{name:<20} {wall_us:>12.2} {cpu_us:>12.2} {mb_s:>12.0} {cpu_pct:>12.2} {speedup:>11.2}x"
-        );
+        match format {
+            BenchFormat::Text => {
+                println!(
+                    "{name:<20} {wall_us:>12.2} {cpu_us:>12.2} {mb_s:>12.0} {cpu_pct:>12.2} {speedup:>11.2}x"
+                );
+            }
+            BenchFormat::Markdown => {
+                println!(
+                    "{}",
+                    metrics::markdown_row(name, wall_us, cpu_us, mb_s, cpu_pct, speedup)
+                );
+            }
+        }
     }
 
     Ok(())

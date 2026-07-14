@@ -41,6 +41,19 @@ pub fn speedup_ratio(baseline: Duration, candidate: Duration) -> f64 {
     baseline.as_secs_f64() / candidate_secs
 }
 
+/// One GitHub-flavored-markdown table row for `BENCH_FORMAT=markdown` output,
+/// matching the `| mode | wall µs/frame | cpu µs/frame | MB/s | CPU% @60fps | speedup |` header.
+pub fn markdown_row(
+    name: &str,
+    wall_us: f64,
+    cpu_us: f64,
+    mb_s: f64,
+    cpu_pct: f64,
+    speedup: f64,
+) -> String {
+    format!("| {name} | {wall_us:.2} | {cpu_us:.2} | {mb_s:.0} | {cpu_pct:.2} | {speedup:.2}x |")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +105,13 @@ mod tests {
     #[test]
     fn speedup_ratio_zero_candidate_is_zero() {
         assert_eq!(speedup_ratio(Duration::from_millis(1), Duration::ZERO), 0.0);
+    }
+
+    #[test]
+    fn markdown_row_formats_a_pipe_delimited_table_row() {
+        assert_eq!(
+            markdown_row("StagingRowCopy", 1234.5, 987.65, 4321.0, 59.26, 1.0),
+            "| StagingRowCopy | 1234.50 | 987.65 | 4321 | 59.26 | 1.00x |"
+        );
     }
 }
