@@ -30,7 +30,9 @@ pub enum CliError {
     /// On a macOS build, `create_publisher`'s `#[cfg(not(target_os = "macos"))]`
     /// arm (the only constructor of this variant) is compiled out entirely, so
     /// dead-code analysis on that target sees no constructor for it.
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    // Constructed only on platforms without a native publisher; on macOS
+    // (Syphon) and Windows (Spout) the constructing arm is compiled out.
+    #[cfg_attr(any(target_os = "macos", target_os = "windows"), allow(dead_code))]
     #[error("Syphon/Spout publishing is not supported on this platform")]
     UnsupportedPlatform,
     /// Contract addition (Task 13): surfaces a failed Ctrl+C handler install
@@ -68,7 +70,13 @@ fn create_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, CliE
     Ok(Box::new(publisher))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+fn create_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, CliError> {
+    let publisher = gemelli_spout::SpoutPublisher::new(server_name)?;
+    Ok(Box::new(publisher))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn create_publisher(_server_name: &str) -> Result<Box<dyn TexturePublisher>, CliError> {
     Err(CliError::UnsupportedPlatform)
 }

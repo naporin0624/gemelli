@@ -1919,6 +1919,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "gemelli-core",
+ "gemelli-spout",
  "gemelli-syphon",
  "thiserror 2.0.18",
 ]
@@ -1939,6 +1940,7 @@ dependencies = [
  "eframe",
  "egui",
  "gemelli-core",
+ "gemelli-spout",
  "gemelli-syphon",
  "muda",
  "png",

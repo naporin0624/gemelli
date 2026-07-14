@@ -1,9 +1,8 @@
 # gemelli
 
 A small CLI and GUI tool that captures a webcam feed, applies rotate / flip / crop /
-scale transforms, and publishes the result as a shared GPU texture — Syphon on macOS today, with
-Spout on Windows defined as a trait only (not yet implemented). Sister tool of
-[ravioli](https://github.com/naporin0624/ravioli).
+scale transforms, and publishes the result as a shared GPU texture — Syphon on macOS, Spout on
+Windows. Sister tool of [ravioli](https://github.com/naporin0624/ravioli).
 
 ## Setup
 
@@ -63,6 +62,30 @@ Spout on Windows defined as a trait only (not yet implemented). Sister tool of
    cargo build --workspace
    ```
 
+### Windows (Spout)
+
+Fetch the Spout2 SDK (compiled into `gemelli-spout` at build time), from Git Bash or WSL:
+
+```bash
+./scripts/fetch-spout.sh
+```
+
+This downloads Spout2 into `vendor/Spout2/` (gitignored, like the Syphon build output above) and
+`crates/spout/build.rs` compiles SpoutDX + SpoutGL from there. Requires the MSVC C++ toolchain
+(Visual Studio Build Tools, `x86_64-pc-windows-msvc` — the vendored SDK is MSVC-only, it does not
+build under `-gnu`).
+
+Both `crates/cli` and `crates/gui` embed an application manifest
+(`app.manifest`, via `build.rs`'s `embed_windows_manifest`) that activates ComCtl32 v6. This is
+required, not cosmetic: the vendored Spout2 SDK's `SpoutUtils` imports COMCTL32 ordinal 345,
+which exists only in the v6 common-controls assembly — without the manifest the loader binds the
+v5 `comctl32.dll` in `System32` and the exe fails to start with `STATUS_ENTRYPOINT_NOT_FOUND`.
+The manifest embed is a no-op on every other target (MSVC + Windows gated in `build.rs`).
+
+Then build/run as usual, e.g. `cargo run -p gemelli-cli -- --list-devices`. Publishing appears as
+a Spout sender named by `--server-name` (default `gemelli`), visible to any Spout receiver (e.g.
+OBS's Spout2 Capture source, or the Spout `SpoutReceiver` demo).
+
 ## CLI usage
 
 ```
@@ -77,7 +100,7 @@ gemelli [DEVICE_INDEX] [OPTIONS]
 | `--flip <F>` | `h`, `v`, `hv` | no flip | Mirror horizontally, vertically, or both |
 | `--crop <SPEC>` | `WxH+X+Y`, e.g. `1280x720+320+180` | no crop | Crop before any other transform |
 | `--scale <SPEC>` | `WxH` or a positive factor, e.g. `960x540` or `0.5` | no scale | Resize, applied last |
-| `--server-name <NAME>` | string | `gemelli` | Name of the published Syphon server |
+| `--server-name <NAME>` | string | `gemelli` | Name of the published Syphon (macOS) / Spout (Windows) server |
 | `--fps <N>` | positive integer (`0` rejected) | none: highest resolution, then best fps at that resolution | Prefers a format that exactly matches `N` fps; falls back to the highest-resolution format if no exact match exists (best-effort) |
 
 Transform order is always **crop → rotate → flip → scale**, regardless of the order options are
@@ -112,19 +135,20 @@ re-launching the CLI with new flags each time.
 | Crop: Add crop / Clear crop | Seeds a centered half-frame crop, or removes the crop entirely |
 | Crop: W / H / X / Y fields | Numeric crop editing, synced live with the on-screen drag |
 | Scale: Off / Factor / WxH | Off (no resize), a 0.1–2.0x slider, or exact target dimensions |
-| Server name | Syphon server name; committing a change restarts the server under the new name |
+| Server name | Syphon/Spout server name; committing a change restarts the server under the new name |
 | Start / Stop | Begins/stops capture and Syphon publishing on the selected device |
 | Status bar | Input→output resolution, measured fps, and a publishing/stopped indicator |
 
 Transform order is the same as the CLI: **crop → rotate → flip → scale**. The GUI is an
 additional front end, not a replacement — `gemelli-cli` remains the headless path (e.g. for
-scripted/unattended launches), and both share the same `gemelli-core` transform and Syphon
-publish pipeline.
+scripted/unattended launches), and both share the same `gemelli-core` transform and
+Syphon/Spout publish pipeline.
 
 ## Install / 配布
 
 gemelli ships as unsigned, un-notarized **universal2** (Apple Silicon + Intel) macOS binaries.
-There is no Windows build yet — Spout support is a trait definition only (see the intro above).
+There is no packaged Windows release yet — `release.yml` only builds macOS artifacts — but Spout
+support is fully implemented and buildable from source; see "Windows (Spout)" under Setup above.
 
 ### GUI (エンドユーザ)
 
@@ -238,6 +262,23 @@ client installed and are **not** automated.
       disappears from the client's list (clean publisher drop, matching the CLI's Ctrl+C
       behavior).
 
+### Windows / Spout
+
+Requires a real Windows machine (the `#[cfg(target_os = "windows")]` publisher path and the
+vendored SpoutDX/SpoutGL bridge are not exercised by macOS/Linux CI at all).
+
+- [ ] Run the 3 `#[ignore]`d `gemelli-spout` tests against a running Spout receiver:
+      `cargo test -p gemelli-spout -- --ignored`.
+- [ ] `cargo run -p gemelli-spout --release --example bench_spout_cpu` completes and its report
+      confirms `SendMode::StagingSse` (the crate's default send mode) is at least as fast as
+      `StagingRowCopy` on real hardware, not just in the A/B/C numbers from one dev box.
+- [ ] Run `cargo run -p gemelli-cli -- --list-devices` then
+      `cargo run -p gemelli-cli -- 0 --rotate 90 --flip h --scale 0.5`, and view the output in
+      OBS (Spout2 Source plugin) or the Spout demo `SpoutReceiver`: a sender named `gemelli`
+      appears, colours are correct (BGRA, not channel-swapped), the image is upright, and
+      rotate/flip/scale are reflected — same checks as the macOS/Syphon CLI row above.
+- [ ] Repeat the same visual check via `cargo run -p gemelli-gui`.
+
 ## License
 
 MIT — see workspace `Cargo.toml` (`license = "MIT"`).
@@ -253,6 +294,11 @@ The GUI embeds [LINE Seed JP](https://github.com/line/seed) (SIL Open Font Licen
 fetched at build time by `scripts/fetch-fonts.sh` — see
 [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No font file is committed to this repository.
 
+This project vendors the [Spout2 SDK](https://github.com/leadedge/Spout2) (BSD-2-Clause) as a
+build-time dependency of `gemelli-spout`, fetched into `vendor/Spout2/` by
+`scripts/fetch-spout.sh` — see [`THIRD-PARTY-NOTICES`](./THIRD-PARTY-NOTICES). No Spout2 source
+is copied into this repository.
+
 ## License checks
 
 This repo enforces a permissive-only license policy on its Cargo dependency graph and keeps a
@@ -267,3 +313,29 @@ cargo deny check licenses
 # or removing a dependency, then commit the result.
 cargo xtask gen-licenses
 ```
+
+## CI
+
+Linux-hosted checks (`license-check.yml`) run automatically on every push and pull request.
+The platform lint/test jobs (`.github/workflows/macos.yml`, `.github/workflows/windows.yml`) do
+**not** — macOS runners bill at 10x Linux minutes and Windows at 2x, so both are gated behind a
+`pull_request: types: [labeled]` trigger plus a `workflow_dispatch` escape hatch, instead of
+running on every push:
+
+```yaml
+if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci-macos'   # macos.yml
+if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci-windows' # windows.yml
+```
+
+To fire one on demand, cycle the label on the PR (removing and re-adding it re-triggers the
+`labeled` event even if the label is already present):
+
+```bash
+gh pr edit <PR> --remove-label ci-windows; gh pr edit <PR> --add-label ci-windows
+gh pr edit <PR> --remove-label ci-macos;   gh pr edit <PR> --add-label ci-macos
+```
+
+Full local gates (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D
+warnings`, `cargo test --workspace`) are expected to have already passed on the target platform
+before pushing — these label-gated jobs are the pre-merge cross-check, not the first line of
+defense.
