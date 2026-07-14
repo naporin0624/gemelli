@@ -2,6 +2,5 @@
   "crates/core": "0.3.0",
   "crates/cli": "0.3.0",
   "crates/gui": "0.4.0",
-  "crates/syphon": "0.4.0",
-  "crates/spout": "0.2.0"
+  "crates/publisher": "0.1.0"
 }

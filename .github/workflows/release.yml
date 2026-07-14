@@ -39,8 +39,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # gemelli-syphon links against Apple's Syphon.framework, built locally from the
-      # vendor/syphon-src submodule — see README.md "Setup" for the source of these commands.
+      # crates/publisher links linguine's Syphon bridge against Apple's Syphon.framework,
+      # built locally from the vendor/syphon-src submodule — see README.md "Setup" for the
+      # source of these commands.
       - name: Build Syphon.framework
         run: |
           cd vendor/syphon-src

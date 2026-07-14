@@ -148,24 +148,8 @@ impl Drop for WorkerHandle {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn open_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, PublishError> {
-    let publisher = gemelli_syphon::SyphonPublisher::new(server_name)?;
-    Ok(Box::new(publisher))
-}
-
-#[cfg(target_os = "windows")]
-fn open_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, PublishError> {
-    let publisher = gemelli_spout::SpoutPublisher::new(server_name)?;
-    Ok(Box::new(publisher))
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-fn open_publisher(server_name: &str) -> Result<Box<dyn TexturePublisher>, PublishError> {
-    Err(PublishError::ServerCreate {
-        name: server_name.to_string(),
-        reason: "Syphon/Spout publishing is not supported on this platform".to_string(),
-    })
+    gemelli_publisher::open_publisher(server_name)
 }
 
 /// Parameters for one capture-thread run. Changing device, fps, or server

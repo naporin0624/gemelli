@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/cli", "crates/gui", "crates/syphon", "crates/spout", "crates/xtask"]
+members = ["crates/core", "crates/cli", "crates/gui", "crates/publisher", "crates/xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -20,6 +20,11 @@ tray-icon = "0.24.1"
 png = "0.18.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Shared Syphon (macOS) / Spout (Windows) texture-sender bridges, extracted
+# from this repo into their own crate; see the linguine README's "consumer
+# mechanics" section (framework resolution, rpath forwarding, Windows
+# manifest embedding) for what crates/publisher's build.rs/src implement.
+linguine = { git = "https://github.com/naporin0624/linguine", rev = "28bfbe3d995f36962e762f244fac2d0c0eb2f665" }
 
 # OBS Virtual Camera advertises only kCVPixelFormatType_32BGRA, which stock
 # nokhwa rejects during format enumeration ("Unknown FourCharCode 1111970369").

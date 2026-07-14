@@ -1,2 +1,7 @@
 [alias]
 xtask = "run --package xtask --"
+
+# linguine's build.rs resolves Syphon.framework via this env var (tier 1 of 3);
+# relative = true resolves against this project root (the parent of .cargo/).
+[env]
+LINGUINE_SYPHON_FRAMEWORK_DIR = { value = "vendor", relative = true }
