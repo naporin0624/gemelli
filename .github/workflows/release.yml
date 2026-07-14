@@ -52,6 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.inputs.tag || github.sha }}
           submodules: recursive
 
       - uses: dtolnay/rust-toolchain@1.96.1
@@ -100,6 +101,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.inputs.tag || github.sha }}
           submodules: recursive
 
       - uses: dtolnay/rust-toolchain@1.96.1
